@@ -1,6 +1,6 @@
 # Spec: DiskSnap
 Status: active
-Last updated: 2026-11-12
+Last updated: 2026-11-13
 
 ## Goal
 A personal Windows tool that records disk-usage snapshots of one or more drives and compares two snapshots, so that when free space suddenly drops the user can see which folder or file grew. Comparison is the main feature. The scan must be cheap enough to run routinely, and snapshots small enough to keep many.
@@ -48,6 +48,12 @@ A personal Windows tool that records disk-usage snapshots of one or more drives 
   - Only in the newer snapshot: if the parent was expanded in the older one, the node is `new` with older size 0. Otherwise its older size is unknown and shown as "-"; the nearest ancestor present in both carries the delta.
   - Only in the older snapshot: symmetric (`removed` or unknown).
 - R18 Top growers: a flat list ranked by delta. A node is listed when its delta is at least `minDelta` (default 50 MiB) and no single child accounts for 80% or more of its delta (otherwise the child is listed instead of the parent). A toggle shows shrinkers instead. Each row shows path, older size, newer size, delta, percent change, and any matching rule guidance.
+- R21 Report export: produce a Markdown report from a comparison, meant to be pasted to an LLM or read as text.
+  - Contents, in this order: (1) header: drive, volume serial, both snapshot timestamps, thresholds, volume used/free for each, "unaccounted" for each; (2) summary: total delta, count of new, removed and unknown-presence nodes; (3) top growers table, default 30 rows (configurable): rank, path, older, newer, delta, delta %, flags; (4) for each of the top 10 growers: its ancestor chain with deltas and any matching rule guidance; (5) caveats: skipped-folder counts, excluded rules that were not measured, snapshot-scope notes.
+  - Sizes are shown as human-readable text with exact bytes alongside. Paths are drive-relative with backslashes.
+  - Output is deterministic (stable ordering, no timestamps of the export itself) and capped at a configurable length (default about 20 KB); when the cap truncates, the report says what was omitted.
+  - Reports contain paths only, never file contents. Paths may include user names, so the UI warns before copying.
+- R22 Delivery: the GUI has an "Export report" action (save as .md, or copy to clipboard). Headless: `DiskSnap.exe --compare C: [--a <file> --b <file>] --out report.md`. With no `--a`/`--b`, it compares the newest snapshot with the previous one.
 
 ### Interfaces
 - R19 GUI (WPF), plain and usable:
@@ -82,8 +88,8 @@ Guidance text below is a draft for display only. Verify each command against cur
 - Targets (measure and record in the worklog, not hard gates): a typical snapshot at default thresholds stays under about 10 MB compressed; scan time for the user's C: is recorded after M1.
 
 ## Acceptance criteria
-- [ ] AC1 Solution builds and `dotnet test` passes from an elevated terminal.
-- [ ] AC2 Snapshot write/read round trip preserves every field. Header and node schema match R14.
+- [x] AC1 Solution builds and `dotnet test` passes from an elevated terminal.
+- [x] AC2 Snapshot write/read round trip preserves every field. Header and node schema match R14.
 - [ ] AC3 Scanner fixtures: a junction (made with `mklink /J`) and a directory symlink (test skipped with a clear message if the privilege is missing) are recorded as links and their targets are not double counted.
 - [ ] AC4 A directory with a deny ACE is skipped, counted in the header, and the scan completes.
 - [ ] AC5 Threshold pruning: fixtures show expanded versus collapsed directories and the small-files aggregate exactly as R8 describes.
@@ -96,6 +102,8 @@ Guidance text below is a draft for display only. Verify each command against cur
 - [ ] AC12 GUI: multi-drive select and scan with progress and Cancel; snapshot list with delete; Compare tree, Top growers, and Special folders panel work as in R19.
 - [ ] AC13 Real-machine check (user-assisted): scan C:, create a new folder with a dummy 2 GB file, scan again; Top growers lists that folder or file first.
 - [ ] AC14 Published single-file win-x64 build runs; README.md describes current usage.
+- [ ] AC15 Golden-file test: the AC10 diff fixtures produce a report with the sections in R21 order, rows sorted by delta, the row limit honored, truncation noted, and byte-identical output on a second run.
+- [ ] AC16 `--compare` writes the report, returns 0 on success and non-zero when fewer than two snapshots exist or the volume serials differ; GUI export saves/copies the same text.
 
 ## Milestones
 ### M0 Scaffold and snapshot IO
@@ -110,3 +118,5 @@ Guidance text below is a draft for display only. Verify each command against cur
 - Exit criteria: AC12, AC13
 ### M5 Publish
 - Exit criteria: AC14
+### M6 LLM report export
+- Exit criteria: AC15, AC16 (depends on M3; the GUI action needs M4)
