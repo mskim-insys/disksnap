@@ -1,0 +1,43 @@
+# Decisions
+
+## 2026-11-12-01 Stack: C# on .NET with a WPF UI
+- Context: Windows-only personal tool. It needs low-level Win32 file enumeration (P/Invoke), an admin manifest, and a tree-style data grid. It will be built and maintained mostly by AI agents.
+- Decision: C# on current .NET LTS (net10.0-windows; if the installed SDK is older, use net8.0-windows and log it here). WPF for the UI. All scan, snapshot, and diff logic lives in a UI-free class library (`DiskSnap.Core`) so the engine or the UI can be swapped later.
+- Alternatives considered and rejected:
+  - Rust (egui or Tauri): fastest scan and good NTFS crates, but the UI and iteration loop are slower to build. Revisit only as a scan engine behind the same Core interface (see 2026-11-12-05).
+  - Python: scan speed and packaging are weak for multi-million-file volumes.
+  - Electron or Tauri web UI: file access would need a native sidecar anyway.
+  - WinUI 3: packaging friction, and its tree-grid controls are less mature than WPF's ecosystem.
+  - Avalonia or MAUI: cross-platform is not needed now. Avalonia is the migration path if that changes, because Core has no UI references.
+- Impact / follow-ups: Core must not reference WPF. Elevated debugging is required (admin manifest).
+
+## 2026-11-12-02 Snapshot format: JSON Lines compressed with gzip
+- Context: snapshots are write-once, read-whole, and compared by loading two into memory. The user suggested 7z or any practical compressed format.
+- Decision: one JSON object per line (header line, then node lines), compressed with built-in GZipStream, extension `.jsonl.gz`. The schema is in specs/disksnap.md.
+- Alternatives considered and rejected:
+  - 7z: needs a bundled 7z binary or a native wrapper, which is a dependency for little gain on text data.
+  - SQLite: random access is not needed.
+  - Zstandard or Brotli: slightly better ratio, but common tools cannot open the files. Revisit if typical snapshots exceed about 50 MB.
+  - Custom binary: unreadable for debugging.
+- Impact / follow-ups: `v` field in the header versions the schema. Measure real snapshot sizes in M0/M2 and record them in the worklog.
+
+## 2026-11-12-03 Size metric: allocated size on disk
+- Context: logical file size misreports sparse files, compressed files, VHDX images, and cloud placeholders, which are exactly the files that surprise a user.
+- Decision: record allocated size. Enumerate with bulk directory queries (GetFileInformationByHandleEx with FileIdBothDirectoryInfo or FileIdExtdDirectoryInfo), which return allocation size without a per-file call.
+- Alternatives considered and rejected: logical size only (misleading, see above); GetCompressedFileSize per file (one extra syscall per file, slow).
+- Impact / follow-ups: verify in M1 that the bulk query is fast and correct. If it is not feasible, fall back to logical size plus a per-file allocation call only for files above the file threshold, and record the fallback here.
+
+## 2026-11-12-04 Scan walks everything; thresholds only prune what is recorded
+- Context: deciding whether a folder is "large enough to expand" needs its subtree total.
+- Decision: every directory is enumerated once. Thresholds decide what goes into the snapshot, not what is walked.
+- Alternatives considered and rejected: stop descending below a threshold (the total would be unknown without walking).
+- Impact / follow-ups: scan time does not depend on thresholds. Thresholds only control snapshot size.
+
+## 2026-11-12-05 Deferred: direct MFT reading for faster scans
+- Context: tools like WizTree read the NTFS master file table directly. It is faster but needs raw volume access, works on NTFS only, and is much more code.
+- Decision: not in v1. Use normal directory enumeration.
+- Impact / follow-ups: revisit if a full scan of the user's C: takes longer than the user tolerates. Record the measured scan time in the worklog first.
+
+## 2026-11-12-06 Deferred: scheduled scans from inside the app
+- Decision: v1 only provides the headless `--scan` command. The user registers a Task Scheduler task manually (run with highest privileges).
+- Impact / follow-ups: a UI for registering the task can be added later.
