@@ -3,15 +3,21 @@ Spec: specs/disksnap.md
 Status: in progress
 
 ## Handover
-- Current milestone: M0 done; M1 is next.
-- Done and verified: M0 scaffold and snapshot IO are complete; AC1 and AC2 pass.
-- Not done / partial: M1 has not started; its exit criteria are listed in the spec.
-- First step next session: Start M1 scanner core.
-- Read first: `README.md`, `specs/disksnap.md`, `DECISIONS.md`.
-- Traps: The agent environment cannot execute the test assembly (WDAC `0x800711C7`); the user runs `dotnet test` for verification.
-- Open questions: None.
+- Current milestone: M1 in progress; exit criteria are AC3-AC8 in the [spec](../specs/disksnap.md#acceptance-criteria).
+- Done and verified: Scanner core and AC3-AC8 temp-fixture tests are implemented; Release solution build succeeds; the bulk directory query was verified on a 1,000-file temp fixture.
+- Not done / partial: Runtime verification of AC3-AC8 is pending because WDAC blocked loading `DiskSnap.Core.dll`; the criteria remain unchecked until the user runs the test suite.
+- First step next session: Run `dotnet test tests\DiskSnap.Core.Tests\DiskSnap.Core.Tests.csproj -c Release`, record the result on the M1 Verified line, and update the AC checkboxes before starting M2.
+- Read first: `README.md`, `specs/disksnap.md`, `DECISIONS.md`, this Handover.
+- Traps: Do not scan a real drive or access `%LOCALAPPDATA%\DiskSnap`; tests use temp directories only. Test execution is blocked by WDAC `0x800711C7` in this environment.
+- Open questions: User test result for AC3-AC8.
+- User: test failed due to SAC. proj holding until I can turn it off.
 
 ## Sessions (newest first)
+### 2026-11-13 · M1
+- Changed: Added the Windows bulk-query scanner, link/cloud/hard-link handling, skipped-path reporting, thresholds, rules, and temp-only AC3-AC8 tests.
+- Verified: `dotnet build DiskSnap.sln -c Release` succeeded with 0 warnings and 0 errors. A temporary 1,000-file fixture returned the expected 4,096,000 allocated bytes in a 0.5 ms bulk query. `dotnet test tests\DiskSnap.Core.Tests\DiskSnap.Core.Tests.csproj -c Release --no-build` was blocked when Windows Application Control denied loading `DiskSnap.Core.dll` (`0x800711C7`); no tests executed. User-run result pending.
+- Risks / open: Runtime AC3-AC8 verification remains pending; no real-drive scan was performed.
+
 ### 2026-11-13 · M6
 - Scope change: added R21, R22, AC15, AC16, and M6 for LLM report export.
 

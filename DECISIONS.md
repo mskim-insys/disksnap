@@ -25,7 +25,7 @@
 - Context: logical file size misreports sparse files, compressed files, VHDX images, and cloud placeholders, which are exactly the files that surprise a user.
 - Decision: record allocated size. Enumerate with bulk directory queries (GetFileInformationByHandleEx with FileIdBothDirectoryInfo or FileIdExtdDirectoryInfo), which return allocation size without a per-file call.
 - Alternatives considered and rejected: logical size only (misleading, see above); GetCompressedFileSize per file (one extra syscall per file, slow).
-- Impact / follow-ups: verify in M1 that the bulk query is fast and correct. If it is not feasible, fall back to logical size plus a per-file allocation call only for files above the file threshold, and record the fallback here.
+- Impact / follow-ups: M1 verified the bulk query on a temporary directory with 1,000 4 KiB files: it returned the 4,096,000-byte allocation total in 0.5 ms (the query also returned `.` and `..`). The bulk query is feasible, so no fallback was needed. Full-drive timing remains unmeasured pending separate user approval.
 
 ## 2026-11-12-04 Scan walks everything; thresholds only prune what is recorded
 - Context: deciding whether a folder is "large enough to expand" needs its subtree total.
