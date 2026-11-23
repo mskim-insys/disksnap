@@ -3,14 +3,29 @@ Spec: specs/disksnap.md
 Status: in progress
 
 ## Handover
-- Current milestone: M1 complete; M2 is next. Exit criteria are in the [spec](../specs/disksnap.md#acceptance-criteria).
-- Done and verified: Scanner core and AC3-AC8 temp-fixture tests passed in an elevated Release test run.
-- First step next session: Begin M2 store, retention, and headless mode against its spec criteria.
+- Current milestone: M1 follow-up; M2 has not started. Exit criteria remain in the [spec](../specs/disksnap.md#acceptance-criteria).
+- Done and verified: The user reported `dotnet test DiskSnap.sln -c Release` passing all 24 tests after the follow-up; details are in the session entry below.
+- First step next session: Review the M1 follow-up and user-provided benchmark results below; do not start M2 without a new request.
 - Read first: `README.md`, `specs/disksnap.md`, `DECISIONS.md`, this Handover.
-- Traps: Do not scan a real drive or access `%LOCALAPPDATA%\DiskSnap`; tests use temp directories only. A real-drive timing still needs separate user approval.
-- Open questions: The symlink privilege-missing skip path has not been exercised on an unprivileged machine.
+- Traps: Do not scan a real drive or access `%LOCALAPPDATA%\DiskSnap`; tests and benchmark use temp directories only. Temp-subdirectory scans use an internal test-only overload. Benchmark results are single runs; peak working set covers the test process, including fixture setup.
+- Open questions: Decide how to handle cloud placeholder directories before the first real-drive scan (DECISIONS.md 2026-11-23-01); the symlink privilege-missing skip path has not been exercised on an unprivileged machine.
 
 ## Sessions (newest first)
+### 2026-11-23 · M1 follow-up
+- Changed: Recorded the user's benchmark output; no scanner changes in this session.
+- Verified: The user reported the opt-in benchmark passed once per version. For 100,000 temp files, scan elapsed time was 0.3330565 s before and 0.1770075 s after; process peak working set was 131,854,336 bytes before and 72,118,272 bytes after. Total benchmark test-run durations were 25.1 s and 30.0 s, respectively, including fixture creation and cleanup.
+- Risks / open: Single runs do not establish a stable speed ratio; peak working set is process-wide and may include setup rather than only scanning. Cloud placeholder directory enumeration still needs the user's decision before a real-drive scan.
+
+### 2026-11-23 · M1 follow-up
+- Changed: Recorded the user's test and timing results; no scanner changes in this session.
+- Verified: The user reported 12/12 tests passing in 33.5 s before and 12/12 in 27.0 s for another run, then 24/24 passing in 30.8 s for the full suite after (`dotnet test DiskSnap.sln -c Release`). These are test-run durations, not scan-only elapsed time or peak working set; the 12-test and 24-test runs do not have the same test count.
+- Risks / open: Cloud placeholder directory enumeration still needs the user's decision before a real-drive scan.
+
+### 2026-11-23 · M1 follow-up
+- Changed: Added the opt-in `DISKSNAP_BENCH=1` 100,000-file benchmark in its own first commit (`f0269d5`); folded small-file data into directory totals; compiled and prefiltered rules per scan; enforced volume-root scans; adjusted unsupported-enumeration handling; added temp-only sparse, compression, long-path, cancellation, and regression fixtures.
+- Verified: `dotnet build DiskSnap.sln -c Release` succeeded. Tests and benchmark were not run per request; the user will run the elevated suite and record benchmark baseline/after measurements. Temp fixtures use the internal test-only subdirectory overload.
+- Risks / open: Cloud placeholder directory enumeration needs the user's decision before a real-drive scan; no real-drive scan was performed.
+
 ### 2026-11-23 · M1
 - Changed: Corrected the junction fixture command and cleanup; made the symlink privilege skip discoverable by xUnit.
 - Verified: Elevated `dotnet test DiskSnap.sln -c Release --no-restore --logger 'console;verbosity=normal'` passed all 11 tests, including the junction, symlink, deny ACE, threshold, rules, hard-link, and cloud cases. Visual Studio solution build succeeded.

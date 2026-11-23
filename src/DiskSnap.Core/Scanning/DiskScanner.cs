@@ -18,14 +18,51 @@ public sealed class DiskScanner
     private readonly SemaphoreSlim _scanGate = new(1, 1);
     private readonly HashSet<FileIdentity> _countedHardLinks = [];
     private readonly List<string> _skippedSample = [];
+    private readonly Func<string, CancellationToken, IReadOnlyList<WindowsDirectoryEnumerator.Entry>> _enumerateDirectory;
     private ScannerOptions _options = null!;
+    private IReadOnlyList<ScanRules.CompiledRule> _compiledRules = Array.Empty<ScanRules.CompiledRule>();
     private uint _volumeSerial;
+    private string _volumeRoot = string.Empty;
+    private string _fileSystem = string.Empty;
     private int _skippedCount;
 
-    public async Task<Snapshot> ScanAsync(
+    public DiskScanner() : this(WindowsDirectoryEnumerator.Enumerate)
+    {
+    }
+
+    internal DiskScanner(Func<string, CancellationToken, IReadOnlyList<WindowsDirectoryEnumerator.Entry>> enumerateDirectory)
+    {
+        _enumerateDirectory = enumerateDirectory;
+    }
+
+    public Task<Snapshot> ScanAsync(
         string rootPath,
         ScannerOptions? options = null,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default) =>
+        ScanCoreAsync(rootPath, options, cancellationToken, allowSubdirectory: false);
+
+    internal Task<Snapshot> ScanAsyncForTests(
+        string rootPath,
+        ScannerOptions? options = null,
+        CancellationToken cancellationToken = default) =>
+        ScanCoreAsync(rootPath, options, cancellationToken, allowSubdirectory: true);
+
+    internal static string NormalizeRootPath(string rootPath)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(rootPath);
+        if (rootPath.Length == 2 && char.IsAsciiLetter(rootPath[0]) && rootPath[1] == ':')
+        {
+            rootPath += Path.DirectorySeparatorChar;
+        }
+
+        return Path.GetFullPath(rootPath);
+    }
+
+    private async Task<Snapshot> ScanCoreAsync(
+        string rootPath,
+        ScannerOptions? options,
+        CancellationToken cancellationToken,
+        bool allowSubdirectory)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(rootPath);
         if (!OperatingSystem.IsWindows())
@@ -35,7 +72,15 @@ public sealed class DiskScanner
 
         var scanOptions = options ?? new ScannerOptions();
         scanOptions.Validate();
-        var fullRootPath = Path.GetFullPath(rootPath);
+        var fullRootPath = NormalizeRootPath(rootPath);
+        var volumeRoot = Path.GetPathRoot(fullRootPath);
+        if (!allowSubdirectory && !string.Equals(fullRootPath, volumeRoot, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new ArgumentException(
+                "Scan root must be a volume root (for example 'C:\\'); scan rules are relative to the drive root.",
+                nameof(rootPath));
+        }
+
         if (!Directory.Exists(fullRootPath))
         {
             throw new DirectoryNotFoundException($"Scan root '{fullRootPath}' does not exist.");
@@ -57,6 +102,7 @@ public sealed class DiskScanner
     private Snapshot Scan(string rootPath, ScannerOptions options, CancellationToken cancellationToken)
     {
         _options = options;
+        _compiledRules = ScanRules.Compile(options.Rules);
         _countedHardLinks.Clear();
         _skippedSample.Clear();
         _skippedCount = 0;
@@ -66,8 +112,10 @@ public sealed class DiskScanner
             ?? throw new ArgumentException("The scan root is not on a local volume.", nameof(rootPath));
         var volume = GetVolumeInformation(volumeRoot);
         _volumeSerial = volume.SerialNumber;
+        _volumeRoot = volumeRoot.TrimEnd(Path.DirectorySeparatorChar);
+        _fileSystem = volume.FileSystem;
         var stopwatch = Stopwatch.StartNew();
-        var root = ScanDirectory(rootPath, string.Empty, applyRules: true, cancellationToken);
+        var root = ScanDirectory(rootPath, string.Empty, applyRules: true, isScanRoot: true, cancellationToken);
         var nodes = new List<SnapshotNode>();
         EmitDirectory(root, nodes, isRoot: true);
         stopwatch.Stop();
@@ -77,7 +125,7 @@ public sealed class DiskScanner
             {
                 Version = 1,
                 Tool = "DiskSnap 1.0.0",
-                Drive = volumeRoot.TrimEnd(Path.DirectorySeparatorChar),
+                Drive = _volumeRoot,
                 VolumeSerial = volume.SerialNumber.ToString("X8", CultureInfo.InvariantCulture),
                 FileSystem = volume.FileSystem,
                 Utc = DateTime.UtcNow.ToString("O", CultureInfo.InvariantCulture),
@@ -103,15 +151,22 @@ public sealed class DiskScanner
         string fullPath,
         string relativePath,
         bool applyRules,
+        bool isScanRoot,
         CancellationToken cancellationToken)
     {
         var directory = new DirectoryRecord(relativePath);
         IReadOnlyList<WindowsDirectoryEnumerator.Entry> entries;
         try
         {
-            entries = WindowsDirectoryEnumerator.Enumerate(fullPath, cancellationToken);
+            entries = _enumerateDirectory(fullPath, cancellationToken);
         }
-        catch (Exception exception) when (IsSkippable(exception))
+        catch (Win32Exception exception) when (isScanRoot && IsUnsupportedEnumerationError(exception))
+        {
+            throw new NotSupportedException(
+                $"Directory enumeration is not supported on drive '{_volumeRoot}' using filesystem '{_fileSystem}'.",
+                exception);
+        }
+        catch (Exception exception) when (IsSkippable(exception, isScanRoot))
         {
             RecordSkipped(fullPath);
             return directory;
@@ -129,21 +184,33 @@ public sealed class DiskScanner
                 ? entry.Name
                 : relativePath + "\\" + entry.Name;
             var childFullPath = Path.Combine(fullPath, entry.Name);
-            var rule = applyRules ? ScanRules.FindMatch(_options.Rules, childRelativePath) : null;
+            var rule = applyRules ? ScanRules.FindMatch(_compiledRules, childRelativePath) : null;
             var isDirectory = (entry.Attributes & FileAttributeDirectory) != 0;
             var isReparsePoint = (entry.Attributes & FileAttributeReparsePoint) != 0;
             var isLink = isReparsePoint && CloudPlaceholderClassifier.IsLinkTag(entry.ReparseTag);
 
             if (rule is not null && string.Equals(rule.Action, "exclude", StringComparison.OrdinalIgnoreCase))
             {
-                directory.Children.Add(MeasureExcluded(
+                var excluded = MeasureExcluded(
                     entry,
                     childFullPath,
                     childRelativePath,
                     isDirectory,
                     isLink,
                     rule,
-                    cancellationToken));
+                    cancellationToken);
+                if (!isDirectory && _options.FileThreshold > 0)
+                {
+                    directory.AddSmallFile(
+                        new ScannedFile(excluded.Size, 0, excluded.RuleId, excluded.Kind, excluded.Flags),
+                        childRelativePath,
+                        excluded.FileCount ?? 0);
+                }
+                else
+                {
+                    directory.Children.Add(excluded);
+                }
+
                 continue;
             }
 
@@ -155,7 +222,7 @@ public sealed class DiskScanner
                 }
                 else
                 {
-                    var child = ScanDirectory(childFullPath, childRelativePath, applyRules, cancellationToken);
+                    var child = ScanDirectory(childFullPath, childRelativePath, applyRules, isScanRoot: false, cancellationToken);
                     child.RuleId = rule?.Id;
                     directory.Children.Add(child);
                 }
@@ -163,7 +230,15 @@ public sealed class DiskScanner
                 continue;
             }
 
-            directory.Children.Add(ScanFile(entry, childFullPath, childRelativePath, rule));
+            var file = ScanFile(entry, childFullPath, rule);
+            if (file.Kind == "l" || file.ThresholdSize >= _options.FileThreshold)
+            {
+                directory.Children.Add(DirectoryRecord.File(childRelativePath, file));
+            }
+            else
+            {
+                directory.AddSmallFile(file, childRelativePath);
+            }
         }
 
         directory.RecalculateTotals();
@@ -184,7 +259,7 @@ public sealed class DiskScanner
             var excluded = DirectoryRecord.Excluded(relativePath, rule.Id, isDirectory, size: 0, fileCount: null);
             if (!isDirectory && CloudPlaceholderClassifier.IsCloudPlaceholder(entry.Attributes))
             {
-                excluded.Flags.Add("cloud");
+                excluded.Flags = ["cloud"];
             }
 
             return excluded;
@@ -195,7 +270,7 @@ public sealed class DiskScanner
             var classification = CloudPlaceholderClassifier.Classify(entry.Attributes, entry.AllocationSize);
             var size = isLink ? 0 : classification.CountedSize;
             var excluded = DirectoryRecord.Excluded(relativePath, rule.Id, isDirectory: false, size, fileCount: 1);
-            excluded.Flags.AddRange(classification.Flags);
+            excluded.Flags = classification.Flags.ToArray();
             return excluded;
         }
 
@@ -204,14 +279,13 @@ public sealed class DiskScanner
             return DirectoryRecord.Excluded(relativePath, rule.Id, isDirectory: true, size: 0, fileCount: 1);
         }
 
-        var measured = ScanDirectory(fullPath, relativePath, applyRules: false, cancellationToken);
+        var measured = ScanDirectory(fullPath, relativePath, applyRules: false, isScanRoot: false, cancellationToken);
         return DirectoryRecord.Excluded(relativePath, rule.Id, isDirectory: true, measured.Size, measured.FileCount);
     }
 
-    private DirectoryRecord ScanFile(
+    private ScannedFile ScanFile(
         WindowsDirectoryEnumerator.Entry entry,
         string fullPath,
-        string relativePath,
         ScanRule? rule)
     {
         var isLink = (entry.Attributes & FileAttributeReparsePoint) != 0 &&
@@ -219,30 +293,21 @@ public sealed class DiskScanner
         var classification = CloudPlaceholderClassifier.Classify(entry.Attributes, entry.AllocationSize);
         var countedSize = isLink ? 0 : classification.CountedSize;
         var thresholdSize = isLink ? 0 : classification.CountedSize;
-        var flags = new List<string>(classification.Flags);
+        var flags = classification.Flags.ToArray();
 
         if (!isLink && !CloudPlaceholderClassifier.IsCloudPlaceholder(entry.Attributes) &&
             entry.AllocationSize >= _options.HardLinkDeduplicationThreshold &&
             WindowsDirectoryEnumerator.TryGetHardLinkInfo(fullPath, out var linkCount) &&
             linkCount > 1)
         {
-            flags.Add("hardlink");
+            flags = [.. flags, "hardlink"];
             if (!_countedHardLinks.Add(new FileIdentity(_volumeSerial, entry.FileId)))
             {
                 countedSize = 0;
             }
         }
 
-        return new DirectoryRecord(relativePath)
-        {
-            IsDirectory = false,
-            Size = countedSize,
-            FileCount = 1,
-            RuleId = rule?.Id,
-            Kind = isLink ? "l" : "f",
-            Flags = flags,
-            FileThresholdSize = thresholdSize
-        };
+        return new ScannedFile(countedSize, thresholdSize, rule?.Id, isLink ? "l" : "f", flags);
     }
 
     private void EmitDirectory(DirectoryRecord directory, List<SnapshotNode> nodes, bool isRoot = false)
@@ -256,7 +321,7 @@ public sealed class DiskScanner
                 Size = directory.Size,
                 FileCount = directory.FileCount,
                 RuleId = directory.RuleId,
-                Flags = directory.Flags.Count == 0 ? null : directory.Flags.ToArray()
+                Flags = directory.Flags.Length == 0 ? null : directory.Flags
             });
             return;
         }
@@ -283,7 +348,6 @@ public sealed class DiskScanner
             RuleId = directory.RuleId
         });
 
-        var smallFiles = new List<DirectoryRecord>();
         foreach (var child in directory.Children.OrderBy(child => child.Path, StringComparer.OrdinalIgnoreCase)
                      .ThenBy(child => child.Path, StringComparer.Ordinal))
         {
@@ -301,10 +365,6 @@ public sealed class DiskScanner
                     RuleId = child.RuleId
                 });
             }
-            else if (child.FileThresholdSize < _options.FileThreshold)
-            {
-                smallFiles.Add(child);
-            }
             else
             {
                 nodes.Add(new SnapshotNode
@@ -313,37 +373,39 @@ public sealed class DiskScanner
                     Kind = child.Kind,
                     Size = child.Size,
                     RuleId = child.RuleId,
-                    Flags = child.Flags.Count == 0 ? null : child.Flags.ToArray()
+                    Flags = child.Flags.Length == 0 ? null : child.Flags
                 });
             }
         }
 
-        if (smallFiles.Count == 0)
+        if (!directory.HasSmallFileAggregate)
         {
             return;
         }
 
-        var aggregateRules = smallFiles.Select(file => file.RuleId).Where(id => id is not null).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
-        var aggregateFlags = smallFiles.SelectMany(file => file.Flags).Distinct(StringComparer.Ordinal).ToArray();
         nodes.Add(new SnapshotNode
         {
             Path = string.IsNullOrEmpty(directory.Path) ? "*" : directory.Path + "\\*",
             Kind = "g",
-            Size = smallFiles.Sum(file => file.Size),
-            FileCount = smallFiles.Sum(file => file.FileCount),
-            RuleId = aggregateRules.Length == 1 ? aggregateRules[0] : null,
-            Flags = aggregateFlags.Length == 0 ? null : aggregateFlags
+            Size = directory.SmallFileSize,
+            FileCount = directory.SmallFileCount,
+            RuleId = directory.GetSmallFileRuleId(),
+            Flags = directory.GetSmallFileFlags()
         });
     }
 
-    private static bool IsSkippable(Exception exception) => exception switch
+    internal static bool IsSkippable(Exception exception, bool isScanRoot) => exception switch
     {
         UnauthorizedAccessException => true,
         IOException => true,
-        Win32Exception nativeException => nativeException.NativeErrorCode is not
-            (ErrorInvalidFunction or ErrorInvalidParameter or ErrorNotSupported or ErrorOperationAborted),
+        Win32Exception nativeException when nativeException.NativeErrorCode == ErrorOperationAborted => false,
+        Win32Exception nativeException when IsUnsupportedEnumerationError(nativeException) => !isScanRoot,
+        Win32Exception => true,
         _ => false
     };
+
+    private static bool IsUnsupportedEnumerationError(Win32Exception exception) =>
+        exception.NativeErrorCode is ErrorInvalidFunction or ErrorInvalidParameter or ErrorNotSupported;
 
     private void RecordSkipped(string path)
     {
@@ -434,26 +496,82 @@ public sealed class DiskScanner
         out int returnLength);
 
     private readonly record struct FileIdentity(uint VolumeSerial, Guid FileId);
+    private readonly record struct ScannedFile(long Size, long ThresholdSize, string? RuleId, string Kind, string[] Flags);
+    private readonly record struct OrderedValue(string Path, string Value, int Index);
     private sealed record VolumeMetadata(uint SerialNumber, string FileSystem, long TotalBytes, long FreeBytes);
 
     private sealed class DirectoryRecord(string path)
     {
+        private Dictionary<string, OrderedValue>? _smallFileRuleIds;
+        private Dictionary<string, OrderedValue>? _smallFileFlags;
+
         public string Path { get; } = path;
         public bool IsDirectory { get; init; } = true;
         public bool IsExcluded { get; init; }
         public long Size { get; set; }
         public long? FileCount { get; set; } = 0;
-        public long FileThresholdSize { get; init; }
+        public long SmallFileSize { get; private set; }
+        public long SmallFileCount { get; private set; }
+        public bool HasSmallFileAggregate { get; private set; }
         public string? RuleId { get; set; }
         public string Kind { get; init; } = "d";
-        public List<string> Flags { get; init; } = [];
+        public string[] Flags { get; set; } = Array.Empty<string>();
         public List<DirectoryRecord> Children { get; } = [];
+
+        public void AddSmallFile(ScannedFile file, string path, long fileCount = 1)
+        {
+            SmallFileSize += file.Size;
+            SmallFileCount += fileCount;
+            HasSmallFileAggregate = true;
+            if (file.RuleId is not null)
+            {
+                AddOrderedValue(_smallFileRuleIds ??= new Dictionary<string, OrderedValue>(StringComparer.OrdinalIgnoreCase),
+                    path, file.RuleId, 0);
+            }
+
+            for (var index = 0; index < file.Flags.Length; index++)
+            {
+                AddOrderedValue(_smallFileFlags ??= new Dictionary<string, OrderedValue>(StringComparer.Ordinal),
+                    path, file.Flags[index], index);
+            }
+        }
 
         public void RecalculateTotals()
         {
-            Size = Children.Sum(child => child.Size);
-            FileCount = Children.Sum(child => child.FileCount ?? 0);
+            var size = SmallFileSize;
+            var fileCount = SmallFileCount;
+            foreach (var child in Children)
+            {
+                size += child.Size;
+                fileCount += child.FileCount ?? 0;
+            }
+
+            Size = size;
+            FileCount = fileCount;
         }
+
+        public string? GetSmallFileRuleId() => _smallFileRuleIds?.Count == 1
+            ? _smallFileRuleIds.Values.Single().Value
+            : null;
+
+        public string[]? GetSmallFileFlags() => _smallFileFlags is null
+            ? null
+            : _smallFileFlags.Values
+                .OrderBy(value => value.Path, StringComparer.OrdinalIgnoreCase)
+                .ThenBy(value => value.Path, StringComparer.Ordinal)
+                .ThenBy(value => value.Index)
+                .Select(value => value.Value)
+                .ToArray();
+
+        public static DirectoryRecord File(string path, ScannedFile file) => new(path)
+        {
+            IsDirectory = false,
+            Size = file.Size,
+            FileCount = 1,
+            RuleId = file.RuleId,
+            Kind = file.Kind,
+            Flags = file.Flags
+        };
 
         public static DirectoryRecord Link(string path, string? ruleId) => new(path)
         {
@@ -473,5 +591,19 @@ public sealed class DiskScanner
             RuleId = ruleId,
             Kind = "x"
         };
+
+        private void AddOrderedValue(Dictionary<string, OrderedValue> values, string path, string value, int index)
+        {
+            if (!values.TryGetValue(value, out var existing) || ComparePaths(path, existing.Path) < 0)
+            {
+                values[value] = new OrderedValue(path, value, index);
+            }
+        }
+
+        private static int ComparePaths(string left, string right)
+        {
+            var comparison = StringComparer.OrdinalIgnoreCase.Compare(left, right);
+            return comparison != 0 ? comparison : StringComparer.Ordinal.Compare(left, right);
+        }
     }
 }

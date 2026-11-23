@@ -1,4 +1,3 @@
-using System.Collections.Concurrent;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 
@@ -11,8 +10,6 @@ public static class ScanRules
         PropertyNameCaseInsensitive = false,
         WriteIndented = true
     };
-    private static readonly ConcurrentDictionary<string, Regex> Matchers = new(StringComparer.Ordinal);
-
     private static readonly IReadOnlyList<ScanRule> DefaultRuleList = Array.AsReadOnly(new[]
     {
         Rule("winsxs", @"Windows\WinSxS", "exclude", false, "Windows component store", "Hard-link heavy, so totals are misleading. Do not delete files by hand. Use Dism.exe /Online /Cleanup-Image /StartComponentCleanup from an elevated prompt."),
@@ -92,32 +89,44 @@ public static class ScanRules
         }
     }
 
-    internal static ScanRule? FindMatch(IReadOnlyList<ScanRule> rules, string relativePath)
-    {
-        foreach (var rule in rules)
+    internal sealed record CompiledRule(ScanRule Rule, Regex Matcher, string LiteralPrefix, string LiteralSuffix);
+
+    internal static IReadOnlyList<CompiledRule> Compile(IReadOnlyList<ScanRule> rules) => rules
+        .Select(rule =>
         {
-            if (Matches(rule.Pattern, relativePath))
+            var regexPattern = "^" + Regex.Escape(rule.Pattern)
+                .Replace("\\*", ".*", StringComparison.Ordinal)
+                .Replace("\\?", ".", StringComparison.Ordinal) + "$";
+            var firstWildcard = rule.Pattern.IndexOfAny(['*', '?']);
+            var lastWildcard = rule.Pattern.LastIndexOfAny(['*', '?']);
+            var literalPrefix = firstWildcard < 0 ? rule.Pattern : rule.Pattern[..firstWildcard];
+            var literalSuffix = lastWildcard < 0 ? string.Empty : rule.Pattern[(lastWildcard + 1)..];
+            return new CompiledRule(
+                rule,
+                new Regex(
+                    regexPattern,
+                    RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled,
+                    TimeSpan.FromSeconds(1)),
+                literalPrefix,
+                literalSuffix);
+        })
+        .ToArray();
+
+    internal static ScanRule? FindMatch(IReadOnlyList<CompiledRule> rules, string relativePath)
+    {
+        foreach (var compiledRule in rules)
+        {
+            if ((compiledRule.LiteralPrefix.Length == 0 ||
+                    relativePath.StartsWith(compiledRule.LiteralPrefix, StringComparison.OrdinalIgnoreCase)) &&
+                (compiledRule.LiteralSuffix.Length == 0 ||
+                    relativePath.EndsWith(compiledRule.LiteralSuffix, StringComparison.OrdinalIgnoreCase)) &&
+                compiledRule.Matcher.IsMatch(relativePath))
             {
-                return rule;
+                return compiledRule.Rule;
             }
         }
 
         return null;
-    }
-
-    private static bool Matches(string pattern, string relativePath)
-    {
-        var matcher = Matchers.GetOrAdd(pattern, static value =>
-        {
-            var regexPattern = "^" + Regex.Escape(value)
-                .Replace("\\*", ".*", StringComparison.Ordinal)
-                .Replace("\\?", ".", StringComparison.Ordinal) + "$";
-            return new Regex(
-                regexPattern,
-                RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled,
-                TimeSpan.FromSeconds(1));
-        });
-        return matcher.IsMatch(relativePath);
     }
 
     private static ScanRule Rule(string id, string pattern, string action, bool measure, string title, string guidance) => new()

@@ -1,4 +1,6 @@
+using System.ComponentModel;
 using System.Diagnostics;
+using System.Globalization;
 using System.Runtime.InteropServices;
 using DiskSnap.Core.Scanning;
 using DiskSnap.Core.Snapshots;
@@ -179,11 +181,12 @@ public sealed class DiskScannerTests
         var rules = new[]
         {
             Rule("skip", "unmeasured", "exclude", measure: false),
+            Rule("later", "UNMEASURED", "track", measure: false),
             Rule("measure", "Measured", "exclude", measure: true),
             Rule("manual", "TRAC*", "track", measure: false)
         };
 
-        var snapshot = await new DiskScanner().ScanAsync(fixture.Path, new ScannerOptions
+        var snapshot = await new DiskScanner().ScanAsyncForTests(fixture.Path, new ScannerOptions
         {
             DirectoryThreshold = 0,
             FileThreshold = 0,
@@ -237,7 +240,7 @@ public sealed class DiskScannerTests
             throw SkipException.ForSkip("The temp volume does not support creating hard links.");
         }
 
-        var snapshot = await new DiskScanner().ScanAsync(fixture.Path, new ScannerOptions
+        var snapshot = await new DiskScanner().ScanAsyncForTests(fixture.Path, new ScannerOptions
         {
             DirectoryThreshold = 0,
             FileThreshold = 0,
@@ -250,6 +253,255 @@ public sealed class DiskScannerTests
         Assert.All(files, file => Assert.Contains("hardlink", file.Flags ?? Array.Empty<string>()));
         Assert.Single(files, file => file.Size > 0);
         Assert.Equal(files.Sum(file => file.Size), Assert.Single(snapshot.Nodes, node => node.Path == "").Size);
+
+        var aggregateSnapshot = await new DiskScanner().ScanAsyncForTests(fixture.Path, new ScannerOptions
+        {
+            DirectoryThreshold = 0,
+            FileThreshold = 4 * 1024 * 1024,
+            HardLinkDeduplicationThreshold = 1024 * 1024,
+            Rules = Array.Empty<ScanRule>()
+        });
+        var aggregate = Assert.Single(aggregateSnapshot.Nodes, node => node.Path == "*");
+        Assert.Equal(files.Sum(file => file.Size), aggregate.Size);
+        Assert.Equal(files.Length, aggregate.FileCount);
+        Assert.Equal(new[] { "hardlink" }, aggregate.Flags);
+    }
+
+    [Fact]
+    public async Task Scan_RequiresAVolumeRootAndNormalizesDriveDesignators()
+    {
+        EnsureWindows();
+        using var fixture = new TempDirectory();
+
+        Assert.Equal(@"C:\", DiskScanner.NormalizeRootPath("C:"));
+        var exception = await Assert.ThrowsAsync<ArgumentException>(() => new DiskScanner().ScanAsync(fixture.Path));
+        Assert.Contains("volume root", exception.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("drive root", exception.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Theory]
+    [InlineData(1)]
+    [InlineData(50)]
+    [InlineData(87)]
+    public async Task Scan_UnsupportedEnumerationErrorInInnerDirectoryIsSkipped(int errorCode)
+    {
+        EnsureWindows();
+        using var fixture = new TempDirectory();
+        var inner = Directory.CreateDirectory(Path.Combine(fixture.Path, "Inner")).FullName;
+        var scanner = new DiskScanner((path, cancellationToken) =>
+        {
+            if (string.Equals(path, inner, StringComparison.OrdinalIgnoreCase))
+            {
+                throw new Win32Exception(errorCode);
+            }
+
+            return WindowsDirectoryEnumerator.Enumerate(path, cancellationToken);
+        });
+
+        var snapshot = await scanner.ScanAsyncForTests(fixture.Path, new ScannerOptions
+        {
+            DirectoryThreshold = 0,
+            FileThreshold = 0,
+            Rules = Array.Empty<ScanRule>()
+        });
+
+        Assert.Equal(1, snapshot.Header.Skipped.Count);
+        Assert.Contains(inner, snapshot.Header.Skipped.Sample, StringComparer.OrdinalIgnoreCase);
+        Assert.DoesNotContain(snapshot.Nodes, node => node.Path.StartsWith("Inner\\", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public void Scan_ErrorClassificationKeepsRootUnsupportedAndOperationAbortedFatal()
+    {
+        foreach (var errorCode in new[] { 1, 50, 87 })
+        {
+            Assert.False(DiskScanner.IsSkippable(new Win32Exception(errorCode), isScanRoot: true));
+            Assert.True(DiskScanner.IsSkippable(new Win32Exception(errorCode), isScanRoot: false));
+        }
+
+        Assert.False(DiskScanner.IsSkippable(new Win32Exception(995), isScanRoot: false));
+    }
+
+    [Fact]
+    public async Task Scan_UnsupportedRootEnumerationErrorNamesDriveAndFileSystem()
+    {
+        EnsureWindows();
+        using var fixture = new TempDirectory();
+        var scanner = new DiskScanner((_, _) => throw new Win32Exception(50));
+
+        var exception = await Assert.ThrowsAsync<NotSupportedException>(() => scanner.ScanAsyncForTests(fixture.Path));
+
+        Assert.Contains("drive", exception.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("filesystem", exception.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task Scan_SmallExcludedFileKeepsItsPreviousAggregateOutput()
+    {
+        EnsureWindows();
+        using var fixture = new TempDirectory();
+        var entry = new WindowsDirectoryEnumerator.Entry("cloud-excluded.bin", 0x00400000, 0, 8192, Guid.Empty);
+        var scanner = new DiskScanner((_, _) => new[] { entry });
+        var options = new ScannerOptions
+        {
+            DirectoryThreshold = 0,
+            FileThreshold = 1024 * 1024,
+            HardLinkDeduplicationThreshold = long.MaxValue,
+            Rules = new[] { Rule("excluded", "cloud-excluded.bin", "exclude", measure: false) }
+        };
+
+        var snapshot = await scanner.ScanAsyncForTests(fixture.Path, options);
+
+        var aggregate = Assert.Single(snapshot.Nodes, node => node.Path == "*");
+        Assert.Equal("g", aggregate.Kind);
+        Assert.Equal(0, aggregate.Size);
+        Assert.Equal(0, aggregate.FileCount);
+        Assert.Equal("excluded", aggregate.RuleId);
+        Assert.Equal(new[] { "cloud" }, aggregate.Flags);
+    }
+
+    [Fact]
+    public async Task Scan_SmallFileAggregatePreservesRuleAndCloudMetadata()
+    {
+        EnsureWindows();
+        using var fixture = new TempDirectory();
+        var entries = new[]
+        {
+            new WindowsDirectoryEnumerator.Entry("cloud.bin", 0x00400000, 0, 8192, Guid.Empty),
+            new WindowsDirectoryEnumerator.Entry("normal.bin", 0, 0, 8192, Guid.NewGuid())
+        };
+        var scanner = new DiskScanner((_, _) => entries);
+        var rules = new[]
+        {
+            Rule("cloud", "cloud.bin", "track", measure: false),
+            Rule("normal", "normal.bin", "track", measure: false)
+        };
+        var individual = await scanner.ScanAsyncForTests(fixture.Path, new ScannerOptions
+        {
+            DirectoryThreshold = 0,
+            FileThreshold = 0,
+            HardLinkDeduplicationThreshold = long.MaxValue,
+            Rules = rules
+        });
+        var aggregated = await scanner.ScanAsyncForTests(fixture.Path, new ScannerOptions
+        {
+            DirectoryThreshold = 0,
+            FileThreshold = 1024 * 1024,
+            HardLinkDeduplicationThreshold = long.MaxValue,
+            Rules = rules
+        });
+
+        var oldFileNodes = individual.Nodes.Where(node => node.Kind == "f").ToArray();
+        var aggregate = Assert.Single(aggregated.Nodes, node => node.Path == "*");
+        Assert.Equal(oldFileNodes.Sum(node => node.Size), aggregate.Size);
+        Assert.Equal(oldFileNodes.Length, aggregate.FileCount);
+        Assert.Null(aggregate.RuleId);
+        Assert.Equal(oldFileNodes.SelectMany(node => node.Flags ?? Array.Empty<string>()).Distinct(), aggregate.Flags);
+    }
+
+    [Fact]
+    public async Task Scan_SparseFileRecordsAllocatedSizeBelowLogicalSize()
+    {
+        EnsureWindows();
+        using var fixture = new TempDirectory();
+        var filePath = Path.Combine(fixture.Path, "sparse.bin");
+        const long logicalSize = 64L * 1024 * 1024;
+        using (var stream = new FileStream(filePath, FileMode.CreateNew, FileAccess.Write))
+        {
+            stream.SetLength(logicalSize);
+        }
+
+        var sparseFlag = RunExecutable("fsutil.exe", "sparse", "setflag", filePath);
+        if (sparseFlag.ExitCode != 0)
+        {
+            throw SkipException.ForSkip("The temp volume does not support sparse files: " + sparseFlag.Output);
+        }
+
+        var zeroRange = RunExecutable("fsutil.exe", "sparse", "setrange", filePath, "0", logicalSize.ToString(CultureInfo.InvariantCulture));
+        if (zeroRange.ExitCode != 0)
+        {
+            throw SkipException.ForSkip("Could not mark zero data in a temp sparse file: " + zeroRange.Output);
+        }
+
+        var snapshot = await ScanAsync(fixture.Path, directoryThreshold: 0, fileThreshold: 0);
+        var sparseFile = Assert.Single(snapshot.Nodes, node => node.Path == "sparse.bin");
+        Assert.True(sparseFile.Size < new FileInfo(filePath).Length);
+    }
+
+    [Fact]
+    public async Task Scan_CompressedFileRecordsAllocatedSizeBelowLogicalSize()
+    {
+        EnsureWindows();
+        using var fixture = new TempDirectory();
+        var filePath = Path.Combine(fixture.Path, "compressed.bin");
+        File.WriteAllBytes(filePath, new byte[16 * 1024 * 1024]);
+        var compression = RunExecutable("compact.exe", "/c", "/q", filePath);
+        if (compression.ExitCode != 0)
+        {
+            throw SkipException.ForSkip("The temp volume does not support NTFS compression: " + compression.Output);
+        }
+
+        var snapshot = await ScanAsync(fixture.Path, directoryThreshold: 0, fileThreshold: 0);
+        var compressedFile = Assert.Single(snapshot.Nodes, node => node.Path == "compressed.bin");
+        Assert.True(compressedFile.Size < new FileInfo(filePath).Length);
+    }
+
+    [Fact]
+    public async Task Scan_SucceedsForPathsLongerThan260Characters()
+    {
+        EnsureWindows();
+        using var fixture = new TempDirectory();
+        var nestedPath = fixture.Path;
+        while (nestedPath.Length < 300)
+        {
+            nestedPath = Path.Combine(nestedPath, new string('d', 40));
+            Directory.CreateDirectory(WindowsDirectoryEnumerator.ToExtendedPath(nestedPath));
+        }
+
+        var longFilePath = Path.Combine(nestedPath, "payload.bin");
+        File.WriteAllBytes(WindowsDirectoryEnumerator.ToExtendedPath(longFilePath), new byte[4096]);
+        var snapshot = await ScanAsync(fixture.Path, directoryThreshold: 0, fileThreshold: 0);
+        var file = Assert.Single(snapshot.Nodes, node => node.Path.EndsWith("payload.bin", StringComparison.Ordinal));
+        Assert.True(Path.Combine(fixture.Path, file.Path.Replace('\\', Path.DirectorySeparatorChar)).Length > 260);
+    }
+
+    [Fact]
+    public async Task Scan_CancellationStopsPromptlyWithoutProducingSnapshot()
+    {
+        EnsureWindows();
+        using var fixture = new TempDirectory();
+        for (var directoryIndex = 0; directoryIndex < 20; directoryIndex++)
+        {
+            var directory = Directory.CreateDirectory(Path.Combine(fixture.Path, $"nested-{directoryIndex:D2}"));
+            for (var fileIndex = 0; fileIndex < 500; fileIndex++)
+            {
+                File.WriteAllBytes(Path.Combine(directory.FullName, $"file-{fileIndex:D3}.bin"), [1]);
+            }
+        }
+
+        var enteredChild = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var scanner = new DiskScanner((path, cancellationToken) =>
+        {
+            var entries = WindowsDirectoryEnumerator.Enumerate(path, cancellationToken);
+            if (!string.Equals(path, fixture.Path, StringComparison.OrdinalIgnoreCase))
+            {
+                enteredChild.TrySetResult();
+            }
+
+            return entries;
+        });
+        using var cancellation = new CancellationTokenSource();
+        var scan = scanner.ScanAsyncForTests(fixture.Path, new ScannerOptions
+        {
+            Rules = Array.Empty<ScanRule>()
+        }, cancellation.Token);
+        await enteredChild.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        var cancelledAt = Stopwatch.StartNew();
+        cancellation.Cancel();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => scan.WaitAsync(TimeSpan.FromSeconds(5)));
+
+        Assert.True(cancelledAt.Elapsed < TimeSpan.FromSeconds(5));
+        Assert.Empty(Directory.GetFiles(fixture.Path, "*.jsonl.gz", SearchOption.AllDirectories));
     }
 
     [Theory]
@@ -273,7 +525,7 @@ public sealed class DiskScannerTests
     }
 
     private static async Task<Snapshot> ScanAsync(string path, long directoryThreshold, long fileThreshold) =>
-        await new DiskScanner().ScanAsync(path, new ScannerOptions
+        await new DiskScanner().ScanAsyncForTests(path, new ScannerOptions
         {
             DirectoryThreshold = directoryThreshold,
             FileThreshold = fileThreshold,
@@ -320,6 +572,28 @@ public sealed class DiskScannerTests
         }
     }
 
+    private static (int ExitCode, string Output) RunExecutable(string fileName, params string[] arguments)
+    {
+        var command = new ProcessStartInfo
+        {
+            FileName = fileName,
+            UseShellExecute = false,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            CreateNoWindow = true
+        };
+        foreach (var argument in arguments)
+        {
+            command.ArgumentList.Add(argument);
+        }
+
+        using var process = Process.Start(command)
+            ?? throw new InvalidOperationException($"Could not start {fileName} for the temp fixture.");
+        var output = process.StandardOutput.ReadToEnd() + process.StandardError.ReadToEnd();
+        process.WaitForExit();
+        return (process.ExitCode, output);
+    }
+
     private static (int ExitCode, string Output) RunIcacls(string path, params string[] arguments)
     {
         var command = new ProcessStartInfo
@@ -361,7 +635,10 @@ public sealed class DiskScannerTests
         {
             if (Directory.Exists(Path))
             {
-                Directory.Delete(Path, recursive: true);
+                var deletePath = OperatingSystem.IsWindows()
+                    ? WindowsDirectoryEnumerator.ToExtendedPath(Path)
+                    : Path;
+                Directory.Delete(deletePath, recursive: true);
             }
         }
     }

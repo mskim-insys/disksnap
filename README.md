@@ -8,4 +8,4 @@ The Windows-only Core library now provides directory scanning and produces schem
 See Commands in AGENTS.md.
 
 ## Current behavior and limits
-The scanner uses bulk allocated-size directory queries, handles reparse points, cloud placeholders and hard links, supports thresholds and rules, and records skipped paths. It has only been exercised against temporary fixtures; no real-drive scan has been performed.
+The scanner uses bulk allocated-size directory queries, handles reparse points, cloud placeholders and hard links, supports thresholds and rules, and records skipped paths. Public scans require a volume root (`C:` is normalized to `C:\`) because rule paths are drive-relative. It has only been exercised against temporary fixtures; no real-drive scan has been performed.

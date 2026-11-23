@@ -41,3 +41,15 @@
 ## 2026-11-12-06 Deferred: scheduled scans from inside the app
 - Decision: v1 only provides the headless `--scan` command. The user registers a Task Scheduler task manually (run with highest privileges).
 - Impact / follow-ups: a UI for registering the task can be added later.
+
+## 2026-11-23-01 Open: enumerate cloud placeholder directories
+- Context: directory entries carrying `RECALL_ON_DATA_ACCESS` may represent cloud placeholders; opening them for enumeration may fetch placeholder contents over the network.
+- Decision: open. Keep current behavior unchanged until the user decides whether and how to enumerate these directories.
+- Alternatives considered: enumerate normally and risk network hydration; skip such directories and report them as skipped, which may omit local data.
+- Impact / follow-ups: the user must decide before the first real-drive scan. No real-drive scan is authorized by this entry.
+
+## 2026-11-23-02 Error handling: unsupported enumeration errors depend on scan depth
+- Context: Win32 errors 1, 50, and 87 from bulk directory enumeration may indicate that the API is unsupported on the volume, but can also arise on an individual inner directory.
+- Decision: on the scan root, fail with a `NotSupportedException` naming the drive and filesystem; on an inner directory, skip and count it like access denied. Error 995 remains non-skippable.
+- Alternatives considered: treating these errors as fatal everywhere would abort scans for isolated directories; skipping them at the root would produce a misleading partial snapshot when the enumeration API is unavailable for the volume.
+- Impact / follow-ups: user-facing scan failures identify the volume and filesystem; skipped inner paths appear in the existing summary.

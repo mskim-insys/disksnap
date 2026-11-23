@@ -40,7 +40,7 @@ public sealed class DiskScannerBenchmarkTests(ITestOutputHelper output)
         }
 
         var stopwatch = Stopwatch.StartNew();
-        var snapshot = await new DiskScanner().ScanAsync(fixture.Path);
+        var snapshot = await new DiskScanner().ScanAsyncForTests(fixture.Path);
         stopwatch.Stop();
         var peakWorkingSet = Process.GetCurrentProcess().PeakWorkingSet64;
 
