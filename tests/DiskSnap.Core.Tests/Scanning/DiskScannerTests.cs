@@ -6,6 +6,41 @@ using Xunit.Sdk;
 
 namespace DiskSnap.Core.Tests.Scanning;
 
+public sealed class DirectorySymlinkFactAttribute : FactAttribute
+{
+    public DirectorySymlinkFactAttribute()
+    {
+        if (!OperatingSystem.IsWindows())
+        {
+            Skip = "Scanner integration fixtures require Windows.";
+            return;
+        }
+
+        var fixture = Path.Combine(Path.GetTempPath(), "DiskSnap.Tests." + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(fixture);
+        var link = Path.Combine(fixture, "link");
+        try
+        {
+            try
+            {
+                Directory.CreateSymbolicLink(link, fixture);
+            }
+            catch (Exception exception) when (
+                (exception is IOException or UnauthorizedAccessException) && (exception.HResult & 0xFFFF) == 1314)
+            {
+                Skip = "Directory symlink privilege is unavailable; enable Developer Mode or run elevated.";
+                return;
+            }
+
+            Directory.Delete(link);
+        }
+        finally
+        {
+            Directory.Delete(fixture);
+        }
+    }
+}
+
 public sealed class DiskScannerTests
 {
     [Fact]
@@ -18,33 +53,32 @@ public sealed class DiskScannerTests
         var junction = Path.Combine(fixture.Path, "TargetAlias");
         CreateJunction(junction, target);
 
-        var snapshot = await ScanAsync(fixture.Path, directoryThreshold: 0, fileThreshold: 0);
+        try
+        {
+            var snapshot = await ScanAsync(fixture.Path, directoryThreshold: 0, fileThreshold: 0);
 
-        var root = Assert.Single(snapshot.Nodes, node => node.Path == "");
-        var targetNode = Assert.Single(snapshot.Nodes, node => node.Path == "Target");
-        var link = Assert.Single(snapshot.Nodes, node => node.Path == "TargetAlias");
-        Assert.Equal("d", targetNode.Kind);
-        Assert.Equal("l", link.Kind);
-        Assert.Equal(0, link.Size);
-        Assert.Equal(targetNode.Size, root.Size);
+            var root = Assert.Single(snapshot.Nodes, node => node.Path == "");
+            var targetNode = Assert.Single(snapshot.Nodes, node => node.Path == "Target");
+            var link = Assert.Single(snapshot.Nodes, node => node.Path == "TargetAlias");
+            Assert.Equal("d", targetNode.Kind);
+            Assert.Equal("l", link.Kind);
+            Assert.Equal(0, link.Size);
+            Assert.Equal(targetNode.Size, root.Size);
+        }
+        finally
+        {
+            Directory.Delete(junction);
+        }
     }
 
-    [Fact]
+    [DirectorySymlinkFact]
     public async Task Scan_DirectorySymlinkIsRecordedAsLinkWithoutDescending()
     {
-        EnsureWindows();
         using var fixture = new TempDirectory();
         var target = Directory.CreateDirectory(Path.Combine(fixture.Path, "Target")).FullName;
         File.WriteAllBytes(Path.Combine(target, "payload.bin"), new byte[16 * 1024]);
         var linkPath = Path.Combine(fixture.Path, "SymbolicAlias");
-        try
-        {
-            Directory.CreateSymbolicLink(linkPath, target);
-        }
-        catch (Exception exception) when (exception is UnauthorizedAccessException or IOException or PlatformNotSupportedException)
-        {
-            throw SkipException.ForSkip("Directory symlink privilege is unavailable; enable Developer Mode or run elevated.");
-        }
+        Directory.CreateSymbolicLink(linkPath, target);
 
         var snapshot = await ScanAsync(fixture.Path, directoryThreshold: 0, fileThreshold: 0);
 
@@ -273,18 +307,16 @@ public sealed class DiskScannerTests
             UseShellExecute = false,
             RedirectStandardOutput = true,
             RedirectStandardError = true,
-            CreateNoWindow = true
+            CreateNoWindow = true,
+            Arguments = $"/d /s /c \"mklink /J \"{junctionPath}\" \"{targetPath}\"\""
         };
-        command.ArgumentList.Add("/d");
-        command.ArgumentList.Add("/c");
-        command.ArgumentList.Add($"mklink /J \"{junctionPath}\" \"{targetPath}\"");
         using var process = Process.Start(command)
             ?? throw new InvalidOperationException("Could not start cmd.exe to create the temp junction.");
         var output = process.StandardOutput.ReadToEnd() + process.StandardError.ReadToEnd();
         process.WaitForExit();
         if (process.ExitCode != 0)
         {
-            throw SkipException.ForSkip("Could not create a junction in the temp fixture: " + output);
+            throw new InvalidOperationException("Could not create a junction in the temp fixture: " + output);
         }
     }
 

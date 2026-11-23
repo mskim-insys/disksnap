@@ -90,12 +90,12 @@ Guidance text below is a draft for display only. Verify each command against cur
 ## Acceptance criteria
 - [x] AC1 Solution builds and `dotnet test` passes from an elevated terminal.
 - [x] AC2 Snapshot write/read round trip preserves every field. Header and node schema match R14.
-- [ ] AC3 Scanner fixtures: a junction (made with `mklink /J`) and a directory symlink (test skipped with a clear message if the privilege is missing) are recorded as links and their targets are not double counted.
-- [ ] AC4 A directory with a deny ACE is skipped, counted in the header, and the scan completes.
-- [ ] AC5 Threshold pruning: fixtures show expanded versus collapsed directories and the small-files aggregate exactly as R8 describes.
-- [ ] AC6 Rules: an `exclude` rule prevents descent and is recorded with its rule id; `measure` true records a size, false does not; a `track` rule only attaches guidance.
-- [ ] AC7 Two hard links to one large file are counted once.
-- [ ] AC8 Cloud-placeholder attribute classification is unit tested (count 0, flagged).
+- [x] AC3 Scanner fixtures: a junction (made with `mklink /J`) and a directory symlink (test skipped with a clear message if the privilege is missing) are recorded as links and their targets are not double counted.
+- [x] AC4 A directory with a deny ACE is skipped, counted in the header, and the scan completes.
+- [x] AC5 Threshold pruning: fixtures show expanded versus collapsed directories and the small-files aggregate exactly as R8 describes.
+- [x] AC6 Rules: an `exclude` rule prevents descent and is recorded with its rule id; `measure` true records a size, false does not; a `track` rule only attaches guidance.
+- [x] AC7 Two hard links to one large file are counted once.
+- [x] AC8 Cloud-placeholder attribute classification is unit tested (count 0, flagged).
 - [ ] AC9 Retention and write path: with `maxSnapshots` = N, after N+1 scans exactly N files remain and the oldest is gone; a cancelled or failed scan leaves no partial file and deletes nothing.
 - [ ] AC10 Diff fixtures cover: new, removed, unknown-presence, rolled-up ancestor delta, and the 80% culprit attribution rule.
 - [ ] AC11 `DiskSnap.exe --scan` creates snapshots for the listed drives with no window and returns correct exit codes.

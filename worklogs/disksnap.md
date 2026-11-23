@@ -3,16 +3,19 @@ Spec: specs/disksnap.md
 Status: in progress
 
 ## Handover
-- Current milestone: M1 in progress; exit criteria are AC3-AC8 in the [spec](../specs/disksnap.md#acceptance-criteria).
-- Done and verified: Scanner core and AC3-AC8 temp-fixture tests are implemented; Release solution build succeeds; the bulk directory query was verified on a 1,000-file temp fixture.
-- Not done / partial: Runtime verification of AC3-AC8 is pending because WDAC blocked loading `DiskSnap.Core.dll`; the criteria remain unchecked until the user runs the test suite.
-- First step next session: Run `dotnet test tests\DiskSnap.Core.Tests\DiskSnap.Core.Tests.csproj -c Release`, record the result on the M1 Verified line, and update the AC checkboxes before starting M2.
+- Current milestone: M1 complete; M2 is next. Exit criteria are in the [spec](../specs/disksnap.md#acceptance-criteria).
+- Done and verified: Scanner core and AC3-AC8 temp-fixture tests passed in an elevated Release test run.
+- First step next session: Begin M2 store, retention, and headless mode against its spec criteria.
 - Read first: `README.md`, `specs/disksnap.md`, `DECISIONS.md`, this Handover.
-- Traps: Do not scan a real drive or access `%LOCALAPPDATA%\DiskSnap`; tests use temp directories only. Test execution is blocked by WDAC `0x800711C7` in this environment.
-- Open questions: User test result for AC3-AC8.
-- User: test failed due to SAC. proj holding until I can turn it off.
+- Traps: Do not scan a real drive or access `%LOCALAPPDATA%\DiskSnap`; tests use temp directories only. A real-drive timing still needs separate user approval.
+- Open questions: The symlink privilege-missing skip path has not been exercised on an unprivileged machine.
 
 ## Sessions (newest first)
+### 2026-11-23 · M1
+- Changed: Corrected the junction fixture command and cleanup; made the symlink privilege skip discoverable by xUnit.
+- Verified: Elevated `dotnet test DiskSnap.sln -c Release --no-restore --logger 'console;verbosity=normal'` passed all 11 tests, including the junction, symlink, deny ACE, threshold, rules, hard-link, and cloud cases. Visual Studio solution build succeeded.
+- Risks / open: The privilege-missing skip path was not exercised; no real-drive scan was performed.
+
 ### 2026-11-13 · M1
 - Changed: Added the Windows bulk-query scanner, link/cloud/hard-link handling, skipped-path reporting, thresholds, rules, and temp-only AC3-AC8 tests.
 - Verified: `dotnet build DiskSnap.sln -c Release` succeeded with 0 warnings and 0 errors. A temporary 1,000-file fixture returned the expected 4,096,000 allocated bytes in a 0.5 ms bulk query. `dotnet test tests\DiskSnap.Core.Tests\DiskSnap.Core.Tests.csproj -c Release --no-build` was blocked when Windows Application Control denied loading `DiskSnap.Core.dll` (`0x800711C7`); no tests executed. User-run result pending.
