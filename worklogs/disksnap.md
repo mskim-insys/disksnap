@@ -3,15 +3,19 @@ Spec: specs/disksnap.md
 Status: in progress
 
 ## Handover
-- Current milestone: M3; exit criteria remain unchecked in the [spec](../specs/disksnap.md#acceptance-criteria).
-- Done and verified: M2 closed on user-reported tests and a headless scan; M3 Core comparison and in-memory fixtures compile in Release.
-- Not done / partial: M3 tests await the user; no M3 acceptance criteria were checked.
-- First step next session: Review the user's elevated Release test results, including the large in-memory comparison, and resolve failures before closing M3.
+- Current milestone: M3 closed; subsequent criteria are in the [spec](../specs/disksnap.md#acceptance-criteria).
+- Done and verified: M3 diff fixtures cover AC10 and passed in the user's elevated Release test run.
+- Not done / partial: Later milestone criteria remain unchecked in the spec.
+- First step next session: Review the next requested milestone and its spec criteria.
 - Read first: `README.md`, `specs/disksnap.md`, `DECISIONS.md`, this Handover.
 - Traps: Do not scan a real drive or access `%LOCALAPPDATA%\DiskSnap` in tests. File thresholds are conditional folding evidence, not guaranteed bounds; exclusions can be ambiguous (2026-11-24-05). GUI elevation remains future work (2026-11-24-02).
 - Open questions: Cloud placeholder directory handling remains undecided (2026-11-23-01); the symlink privilege-missing skip path remains untested on an unprivileged machine.
 
 ## Sessions (newest first)
+### 2026-11-24 · M3 verification
+- Changed: Checked AC10 after reviewing the diff fixtures.
+- Verified: The user ran `dotnet test DiskSnap.sln -c Release` elevated: 57 total, 56 passed, 1 skipped (opt-in benchmark), 0 failed.
+- Risks / open: Cloud placeholder directory handling remains undecided (2026-11-23-01).
 ### 2026-11-24 · M3
 - Changed: Updated R17 and recorded 2026-11-24-05; added the Core comparison tree, ranked growers/shrinkers, rule guidance and in-memory fixtures, including a 200,000-node pair.
 - Verified: `dotnet build DiskSnap.sln -c Release` succeeded with 0 warnings and 0 errors; tests were not run at the user's request. No real-drive scans were performed.
