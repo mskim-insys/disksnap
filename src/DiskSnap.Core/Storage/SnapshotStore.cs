@@ -65,6 +65,33 @@ public sealed class SnapshotStore
         return settings;
     }
 
+    public async Task SaveSettingsAsync(DiskSnapSettings settings, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(settings);
+        settings.Validate();
+        cancellationToken.ThrowIfCancellationRequested();
+        Directory.CreateDirectory(_baseDirectory);
+        var path = Path.Combine(_baseDirectory, "settings.json");
+        var tempPath = Path.Combine(_baseDirectory, $".{Guid.NewGuid():N}.tmp");
+        var created = false;
+        try
+        {
+            await using (var output = new FileStream(tempPath, FileMode.CreateNew, FileAccess.Write, FileShare.None, 4096, FileOptions.Asynchronous))
+            {
+                created = true;
+                await JsonSerializer.SerializeAsync(output, settings, SettingsJson, cancellationToken).ConfigureAwait(false);
+            }
+            cancellationToken.ThrowIfCancellationRequested();
+            File.Move(tempPath, path, overwrite: true);
+            created = false;
+        }
+        finally
+        {
+            if (created)
+                File.Delete(tempPath);
+        }
+    }
+
     public async Task<IReadOnlyList<ScanRule>> LoadRulesAsync(CancellationToken cancellationToken = default)
     {
         var path = Path.Combine(_baseDirectory, "rules.json");

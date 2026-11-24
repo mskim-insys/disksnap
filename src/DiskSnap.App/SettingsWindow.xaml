@@ -1,0 +1,20 @@
+<Window x:Class="DiskSnap.App.SettingsWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Settings" Width="500" MinHeight="340" SizeToContent="Height" ResizeMode="NoResize" WindowStartupLocation="CenterOwner">
+    <StackPanel Margin="16">
+        <TextBlock Text="Maximum snapshots (at least 1)" />
+        <TextBox x:Name="MaxSnapshotsBox" Margin="0,2,0,8" />
+        <TextBlock Text="Directory threshold" />
+        <TextBox x:Name="DirectoryThresholdBox" Margin="0,2,0,8" />
+        <TextBlock Text="File threshold" />
+        <TextBox x:Name="FileThresholdBox" Margin="0,2,0,8" />
+        <TextBlock Text="Sizes without a unit are MiB; for example 50, 50MB or 1GiB." TextWrapping="Wrap" />
+        <TextBlock Text="Thresholds apply to future scans only; they are stored in each snapshot header. A lower maximum deletes older snapshots only at the next successful scan write." TextWrapping="Wrap" Margin="0,8,0,8" />
+        <TextBlock x:Name="ErrorText" Foreground="DarkRed" TextWrapping="Wrap" />
+        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,8,0,0">
+            <Button Content="Save" Click="SaveClick" IsDefault="True" Padding="12,4" Margin="0,0,8,0" />
+            <Button Content="Cancel" IsCancel="True" Padding="12,4" />
+        </StackPanel>
+    </StackPanel>
+</Window>

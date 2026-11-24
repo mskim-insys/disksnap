@@ -12,31 +12,51 @@ public sealed class ComparisonTreeModelTests(ITestOutputHelper output)
     [Fact]
     public void ExpandingAndCollapsingChangesWholeVisibleRanges()
     {
-        var model = new ComparisonTreeModel(CreateNestedComparison());
+        var model = new ComparisonTreeModel(CreateNestedComparison(), initiallyExpanded: false);
         var root = Assert.Single(model.VisibleRows);
-        var notifications = 0;
-        model.VisibleRows.CollectionChanged += (_, args) =>
-        {
-            Assert.Equal(System.Collections.Specialized.NotifyCollectionChangedAction.Reset, args.Action);
-            notifications++;
-        };
+        var notifications = new List<System.Collections.Specialized.NotifyCollectionChangedAction>();
+        model.VisibleRows.CollectionChanged += (_, args) => notifications.Add(args.Action);
 
         Assert.True(model.ToggleExpanded(root));
         Assert.Equal(3, model.VisibleRows.Count);
         Assert.Equal(new[] { "folder", "other" }, model.VisibleRows.Skip(1).Select(row => row.Node.Path));
-        Assert.Equal(1, notifications);
+        Assert.Equal(2, notifications.Count);
+        Assert.All(notifications, action => Assert.Equal(System.Collections.Specialized.NotifyCollectionChangedAction.Add, action));
 
         var folder = model.VisibleRows[1];
         Assert.True(model.ToggleExpanded(folder));
         Assert.Equal(5, model.VisibleRows.Count);
-        Assert.Equal(2, notifications);
+        Assert.Equal(4, notifications.Count);
 
         Assert.True(model.ToggleExpanded(root));
         Assert.Single(model.VisibleRows);
-        Assert.Equal(3, notifications);
+        Assert.Equal(8, notifications.Count);
+        Assert.All(notifications.Skip(4), action => Assert.Equal(System.Collections.Specialized.NotifyCollectionChangedAction.Remove, action));
         Assert.True(model.ToggleExpanded(root));
         Assert.Equal(new[] { "", "folder", @"folder\large.bin", @"folder\small.bin", "other" },
             model.VisibleRows.Select(row => row.Node.Path));
+    }
+
+    [Theory]
+    [InlineData(200, 200, System.Collections.Specialized.NotifyCollectionChangedAction.Add)]
+    [InlineData(201, 1, System.Collections.Specialized.NotifyCollectionChangedAction.Reset)]
+    public void ExpansionAndCollapseUseSingleItemNotificationsOnlyForSmallRanges(int count, int expected, System.Collections.Specialized.NotifyCollectionChangedAction expansion)
+    {
+        var nodes = new List<SnapshotNode> { Node("", "d", count) };
+        nodes.AddRange(Enumerable.Range(0, count).Select(i => Node($"file{i}", "f", 1)));
+        var comparison = SnapshotComparer.Compare(Snapshot(nodes), Snapshot(nodes));
+        var model = new ComparisonTreeModel(comparison, initiallyExpanded: false);
+        var root = model.VisibleRows[0];
+        var actions = new List<System.Collections.Specialized.NotifyCollectionChangedAction>();
+        model.VisibleRows.CollectionChanged += (_, e) => actions.Add(e.Action);
+        model.ToggleExpanded(root);
+        Assert.Equal(expected, actions.Count);
+        Assert.All(actions, action => Assert.Equal(expansion, action));
+        actions.Clear();
+        model.ToggleExpanded(root);
+        Assert.Equal(expected, actions.Count);
+        var collapse = count <= 200 ? System.Collections.Specialized.NotifyCollectionChangedAction.Remove : System.Collections.Specialized.NotifyCollectionChangedAction.Reset;
+        Assert.All(actions, action => Assert.Equal(collapse, action));
     }
 
     [Fact]
@@ -44,12 +64,13 @@ public sealed class ComparisonTreeModelTests(ITestOutputHelper output)
     {
         var model = new ComparisonTreeModel(CreateNestedComparison());
         model.GrowthOnly = true;
+        model.ToggleExpanded(model.VisibleRows[1]);
 
         Assert.Equal(new[] { "", "folder", @"folder\large.bin" }, model.VisibleRows.Select(row => row.Node.Path));
         Assert.All(model.VisibleRows, row => Assert.True(row.Node.Delta > 0 || row.Node.Observation == FileObservation.NewlyObserved));
 
         model.GrowthOnly = false;
-        Assert.Single(model.VisibleRows);
+        Assert.Equal(new[] { "", "folder", @"folder\large.bin", @"folder\small.bin", "other" }, model.VisibleRows.Select(row => row.Node.Path));
     }
 
     [Fact]
@@ -90,6 +111,7 @@ public sealed class ComparisonTreeModelTests(ITestOutputHelper output)
             Node("shrink", "c", 90));
         var model = new ComparisonTreeModel(SnapshotComparer.Compare(older, newer));
         model.GrowthOnly = true;
+        model.ToggleExpanded(model.VisibleRows[1]);
 
         Assert.Equal(new[] { "", "grow", @"grow\larger" }, model.VisibleRows.Select(row => row.Node.Path));
     }
@@ -102,6 +124,7 @@ public sealed class ComparisonTreeModelTests(ITestOutputHelper output)
         var newer = SnapshotWithFileThreshold(20, Node("", "d", 30), Node("folder", "d", 30), Node(@"folder\new.bin", "f", 30, "hint"));
         var model = new ComparisonTreeModel(SnapshotComparer.Compare(older, newer, [rule]));
         model.GrowthOnly = true;
+        model.ToggleExpanded(model.VisibleRows[1]);
 
         var observed = Assert.Single(model.VisibleRows, row => row.Node.Path == @"folder\new.bin");
         Assert.Equal("new.bin (newly observed)", observed.DisplayName);
@@ -113,7 +136,7 @@ public sealed class ComparisonTreeModelTests(ITestOutputHelper output)
         Assert.Contains("Display-only guidance.", observed.GuidanceTooltip);
 
         var reversed = new ComparisonTreeModel(SnapshotComparer.Compare(newer, older, [rule]));
-        reversed.GrowthOnly = true;
+        reversed.ToggleExpanded(reversed.VisibleRows[1]);
         var noLongerObserved = Assert.Single(reversed.VisibleRows, row => row.Node.Path == @"folder\new.bin");
         Assert.Equal("new.bin (no longer observed)", noLongerObserved.DisplayName);
         Assert.StartsWith("at least -10 B", noLongerObserved.DeltaDisplay);

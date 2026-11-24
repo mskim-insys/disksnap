@@ -35,6 +35,11 @@ public sealed partial class MainWindowViewModel
         JumpToBiggestGrowerCommand = new RelayCommand(_ => JumpToBiggestGrower());
         OpenComparisonInExplorerCommand = new RelayCommand(OpenComparisonInExplorer);
         CopyComparisonPathCommand = new RelayCommand(CopyComparisonPath);
+        ShowInTreeCommand = new RelayCommand(parameter =>
+        {
+            if (parameter is TopGrowerRow row)
+                ShowInTree(row.Node.Path);
+        });
     }
 
     public ICommand CompareCommand { get; private set; } = null!;
@@ -276,6 +281,7 @@ public sealed partial class MainWindowViewModel
         SelectedComparisonRow = null;
         ComparisonRows = _comparisonTree?.VisibleRows ?? EmptyComparisonRows;
         HasComparison = comparison is not null;
+        RefreshComparisonPanels();
     }
 
     private void CancelComparison()
@@ -350,7 +356,13 @@ public sealed partial class MainWindowViewModel
     private bool TryGetComparisonPath(object? parameter, out string path)
     {
         path = string.Empty;
-        if (_comparison is null || parameter is not ComparisonTreeRow row)
+        var node = parameter switch
+        {
+            ComparisonTreeRow row => row.Node,
+            TopGrowerRow row => row.Node,
+            _ => null
+        };
+        if (_comparison is null || node is null)
         {
             StatusMessage = "Select a comparison row first.";
             return false;
@@ -359,8 +371,8 @@ public sealed partial class MainWindowViewModel
         try
         {
             var root = SnapshotStore.NormalizeDrive(_comparison.Newer.Header.Drive) + Path.DirectorySeparatorChar;
-            var relative = row.Node.Path;
-            if (row.Node.Presence == NodePresence.Aggregate)
+            var relative = node.Path;
+            if (node.Presence == NodePresence.Aggregate)
             {
                 relative = relative == "*" ? string.Empty : relative.EndsWith("\\*", StringComparison.Ordinal) ? relative[..^2] : relative;
             }

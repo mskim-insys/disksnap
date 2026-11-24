@@ -110,6 +110,10 @@ public sealed class ComparisonTreeRow : INotifyPropertyChanged
         ? $"{percent.ToString("+0.##;-0.##;+0", CultureInfo.CurrentCulture)}%"
         : "-";
 
+    public bool IsShrinkage => Node.Delta is long delta ? delta < 0 :
+        Node.FoldedFileChangeLowerBound is long bound &&
+        (Node.Observation == FileObservation.NoLongerObserved ? -bound : bound) < 0;
+
     public double DeltaBarWidth
     {
         get
@@ -450,10 +454,20 @@ public sealed class ComparisonTreeRows : IList<ComparisonTreeRow>, IReadOnlyList
             return;
         }
 
+        if (rows.Count is > 1 and <= 200)
+        {
+            for (var i = 0; i < rows.Count; i++)
+                InsertRange(index + i, [rows[i]]);
+            return;
+        }
+
         var inserted = BuildTree(rows);
         var (left, right) = Split(_root, index);
         _root = Merge(Merge(left, inserted), right);
-        NotifyReset();
+        if (rows.Count == 1)
+            NotifyItem(NotifyCollectionChangedAction.Add, rows[0], index);
+        else
+            NotifyReset();
     }
 
     internal void RemoveRange(int index, int count)
@@ -467,6 +481,14 @@ public sealed class ComparisonTreeRows : IList<ComparisonTreeRow>, IReadOnlyList
             return;
         }
 
+        if (count is > 1 and <= 200)
+        {
+            for (var i = 0; i < count; i++)
+                RemoveRange(index, 1);
+            return;
+        }
+
+        var singleRow = count == 1 ? this[index] : null;
         var (left, remainder) = Split(_root, index);
         var (removed, right) = Split(remainder, count);
         if (removed is not null)
@@ -483,7 +505,10 @@ public sealed class ComparisonTreeRows : IList<ComparisonTreeRow>, IReadOnlyList
         }
 
         _root = Merge(left, right);
-        NotifyReset();
+        if (singleRow is not null)
+            NotifyItem(NotifyCollectionChangedAction.Remove, singleRow, index);
+        else
+            NotifyReset();
     }
 
     internal void ReplaceRange(IReadOnlyList<ComparisonTreeRow> rows)
@@ -698,6 +723,13 @@ public sealed class ComparisonTreeRows : IList<ComparisonTreeRow>, IReadOnlyList
 
     private static void UpdateSize(Entry entry) =>
         entry.SubtreeSize = 1 + SizeOf(entry.Left) + SizeOf(entry.Right);
+
+    private void NotifyItem(NotifyCollectionChangedAction action, ComparisonTreeRow row, int index)
+    {
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(Count)));
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs("Item[]"));
+        CollectionChanged?.Invoke(this, new NotifyCollectionChangedEventArgs(action, row, index));
+    }
 
     private void NotifyReset()
     {

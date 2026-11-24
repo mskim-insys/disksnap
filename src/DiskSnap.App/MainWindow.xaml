@@ -5,6 +5,7 @@
         Title="DiskSnap" Height="760" Width="1180" MinHeight="560" MinWidth="900">
     <Window.Resources>
         <local:DepthToIndentConverter x:Key="DepthToIndentConverter" />
+        <BooleanToVisibilityConverter x:Key="BooleanToVisibilityConverter" />
     </Window.Resources>
     <Grid Margin="12">
         <Grid.RowDefinitions>
@@ -22,7 +23,8 @@
                     <TextBlock Text="Drives and snapshots" FontSize="18" FontWeight="SemiBold" Margin="0,0,0,10" />
                     <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
                         <Button Content="Scan selected" Command="{Binding ScanCommand}" Padding="12,5" Margin="0,0,8,0" />
-                        <Button Content="Cancel" Command="{Binding CancelCommand}" Padding="12,5" />
+                        <Button Content="Cancel" Command="{Binding CancelCommand}" Padding="12,5" Margin="0,0,8,0" />
+                        <Button Content="Settings" Click="SettingsClick" Padding="12,5" />
                     </StackPanel>
                     <ProgressBar Height="5" IsIndeterminate="{Binding IsScanning}" Margin="0,0,0,6" />
                     <TextBlock Text="{Binding CurrentPath}" TextTrimming="CharacterEllipsis" ToolTip="{Binding CurrentPath}" Margin="0,0,0,4" />
@@ -81,12 +83,13 @@
                         <Button Content="Compare" Command="{Binding CompareCommand}" Padding="10,4" Margin="0,0,8,0" />
                         <ToggleButton Content="Growth only" IsChecked="{Binding GrowthOnly, Mode=TwoWay}" Padding="10,4" Margin="0,0,8,0" />
                         <Button Content="Jump to biggest grower" Command="{Binding JumpToBiggestGrowerCommand}" Padding="10,4" Margin="0,0,12,0" />
-                        <ProgressBar Width="100" Height="14" IsIndeterminate="{Binding IsComparing}" VerticalAlignment="Center" />
+                        <ProgressBar Width="100" Height="14" IsIndeterminate="{Binding IsComparing}" Visibility="{Binding IsComparing, Converter={StaticResource BooleanToVisibilityConverter}}" VerticalAlignment="Center" />
                     </DockPanel>
-                    <ListView Grid.Row="1" ItemsSource="{Binding ComparisonRows}"
+                    <ListView x:Name="ComparisonList" Grid.Row="1" ItemsSource="{Binding ComparisonRows}"
                               SelectedItem="{Binding SelectedComparisonRow, Mode=TwoWay}"
                               ScrollViewer.CanContentScroll="True" ScrollViewer.VerticalScrollBarVisibility="Auto"
                               VirtualizingPanel.IsVirtualizing="True" VirtualizingPanel.VirtualizationMode="Recycling"
+                              PreviewKeyDown="ComparisonListPreviewKeyDown"
                               PreviewMouseRightButtonDown="ComparisonListPreviewMouseRightButtonDown">
                         <ListView.ContextMenu>
                             <ContextMenu>
@@ -162,9 +165,18 @@
                                 <GridViewColumn Header="Delta bar" Width="120">
                                     <GridViewColumn.CellTemplate>
                                         <DataTemplate>
-                                            <Grid Width="100" Height="12" ClipToBounds="True" ToolTip="{Binding DeltaTooltip}">
+                                            <Grid Width="100" Height="12" ClipToBounds="True" ToolTip="Blue: growth; red: shrinkage. See Delta for the signed value and details.">
                                                 <Border Background="#FFE5E5E5" />
-                                                <Border Width="{Binding DeltaBarWidth}" HorizontalAlignment="Left" Background="#FF4A83C5" />
+                                                <Border Width="{Binding DeltaBarWidth}" HorizontalAlignment="Left">
+                                                    <Border.Style>
+                                                        <Style TargetType="Border">
+                                                            <Setter Property="Background" Value="#FF4A83C5" />
+                                                            <Style.Triggers>
+                                                                <DataTrigger Binding="{Binding IsShrinkage}" Value="True"><Setter Property="Background" Value="#FFC24C4C" /></DataTrigger>
+                                                            </Style.Triggers>
+                                                        </Style>
+                                                    </Border.Style>
+                                                </Border>
                                             </Grid>
                                         </DataTemplate>
                                     </GridViewColumn.CellTemplate>
@@ -175,13 +187,49 @@
                 </Grid>
             </TabItem>
             <TabItem Header="Top growers">
-                <Grid>
-                    <TextBlock Text="Next milestone: M4-C — top growers." HorizontalAlignment="Center" VerticalAlignment="Center" FontSize="18" Foreground="#FF606060" />
+                <Grid Margin="8">
+                    <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="*" /></Grid.RowDefinitions>
+                    <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
+                        <CheckBox Content="Shrinkers" IsChecked="{Binding Shrinkers}" Margin="0,0,12,0" VerticalAlignment="Center" />
+                        <CheckBox Content="Include root" IsChecked="{Binding IncludeRoot}" Margin="0,0,12,0" VerticalAlignment="Center" />
+                        <TextBlock Text="Minimum delta (MiB if no unit):" VerticalAlignment="Center" />
+                        <TextBox Width="100" Margin="6,0,0,0" Text="{Binding MinimumDeltaText, UpdateSourceTrigger=PropertyChanged}" />
+                    </StackPanel>
+                    <TextBlock Grid.Row="1" Text="{Binding TopGrowersMessage}" Margin="0,0,0,6" TextWrapping="Wrap" />
+                    <ListView Grid.Row="2" ItemsSource="{Binding TopGrowers}" MouseDoubleClick="TopGrowersDoubleClick" PreviewMouseRightButtonDown="ComparisonListPreviewMouseRightButtonDown" VirtualizingPanel.IsVirtualizing="True" VirtualizingPanel.VirtualizationMode="Recycling">
+                        <ListView.ContextMenu>
+                            <ContextMenu>
+                                <MenuItem Header="Show in tree" Command="{Binding PlacementTarget.DataContext.ShowInTreeCommand, RelativeSource={RelativeSource AncestorType={x:Type ContextMenu}}}" CommandParameter="{Binding PlacementTarget.SelectedItem, RelativeSource={RelativeSource AncestorType={x:Type ContextMenu}}}" />
+                                <MenuItem Header="Open in Explorer" Command="{Binding PlacementTarget.DataContext.OpenComparisonInExplorerCommand, RelativeSource={RelativeSource AncestorType={x:Type ContextMenu}}}" CommandParameter="{Binding PlacementTarget.SelectedItem, RelativeSource={RelativeSource AncestorType={x:Type ContextMenu}}}" />
+                                <MenuItem Header="Copy path" Command="{Binding PlacementTarget.DataContext.CopyComparisonPathCommand, RelativeSource={RelativeSource AncestorType={x:Type ContextMenu}}}" CommandParameter="{Binding PlacementTarget.SelectedItem, RelativeSource={RelativeSource AncestorType={x:Type ContextMenu}}}" />
+                            </ContextMenu>
+                        </ListView.ContextMenu>
+                        <ListView.View><GridView>
+                            <GridViewColumn Header="Path" Width="260"><GridViewColumn.CellTemplate><DataTemplate><StackPanel Orientation="Horizontal"><TextBlock Text="{Binding Path}" ToolTip="{Binding Path}" /><TextBlock Text=" i" FontWeight="Bold" Foreground="#FF725A00" ToolTip="{Binding GuidanceTooltip}" Visibility="{Binding HasGuidance, Converter={StaticResource BooleanToVisibilityConverter}}" /></StackPanel></DataTemplate></GridViewColumn.CellTemplate></GridViewColumn>
+                            <GridViewColumn Header="Older" Width="100"><GridViewColumn.CellTemplate><DataTemplate><TextBlock Text="{Binding OlderDisplay}" ToolTip="{Binding OlderTooltip}" /></DataTemplate></GridViewColumn.CellTemplate></GridViewColumn>
+                            <GridViewColumn Header="Newer" Width="100"><GridViewColumn.CellTemplate><DataTemplate><TextBlock Text="{Binding NewerDisplay}" ToolTip="{Binding NewerTooltip}" /></DataTemplate></GridViewColumn.CellTemplate></GridViewColumn>
+                            <GridViewColumn Header="Delta" Width="260"><GridViewColumn.CellTemplate><DataTemplate><TextBlock Text="{Binding DeltaDisplay}" ToolTip="{Binding DeltaTooltip}" /></DataTemplate></GridViewColumn.CellTemplate></GridViewColumn>
+                            <GridViewColumn Header="Delta %" Width="80" DisplayMemberBinding="{Binding PercentDisplay}" />
+                        </GridView></ListView.View>
+                    </ListView>
                 </Grid>
             </TabItem>
             <TabItem Header="Special folders">
-                <Grid>
-                    <TextBlock Text="Next milestone: M4-C — special folders." HorizontalAlignment="Center" VerticalAlignment="Center" FontSize="18" Foreground="#FF606060" />
+                <Grid Margin="8">
+                    <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="*" /><RowDefinition Height="Auto" /><RowDefinition Height="*" /></Grid.RowDefinitions>
+                    <TextBlock Grid.Row="0" Margin="0,0,0,8"><Run Text="Unaccounted space: " /><Run Text="{Binding SpecialFolders.UnaccountedDisplay, TargetNullValue=-}" /><Run Text="   Skipped: " /><Run Text="{Binding SpecialFolders.SkippedCount, TargetNullValue=-}" /><TextBlock.ToolTip><TextBlock Text="{Binding SpecialFolders.UnaccountedTooltip}" /></TextBlock.ToolTip></TextBlock>
+                    <ListView x:Name="SpecialFoldersList" Grid.Row="1" ItemsSource="{Binding SpecialFolders.Rows}" VirtualizingPanel.IsVirtualizing="True" VirtualizingPanel.VirtualizationMode="Recycling">
+                        <ListView.View><GridView>
+                            <GridViewColumn Header="Path" Width="240" DisplayMemberBinding="{Binding Path}" />
+                            <GridViewColumn Header="Rule" Width="150" DisplayMemberBinding="{Binding Title}" />
+                            <GridViewColumn Header="Kind" Width="55" DisplayMemberBinding="{Binding Kind}" />
+                            <GridViewColumn Header="Size" Width="100"><GridViewColumn.CellTemplate><DataTemplate><TextBlock Text="{Binding SizeDisplay}" ToolTip="{Binding SizeTooltip}" /></DataTemplate></GridViewColumn.CellTemplate></GridViewColumn>
+                            <GridViewColumn Header="Trend" Width="100"><GridViewColumn.CellTemplate><DataTemplate><TextBlock Text="{Binding TrendDisplay}" ToolTip="{Binding TrendTooltip}" /></DataTemplate></GridViewColumn.CellTemplate></GridViewColumn>
+                            <GridViewColumn Header="Flags" Width="100" DisplayMemberBinding="{Binding Flags}" />
+                        </GridView></ListView.View>
+                    </ListView>
+                    <TextBlock Grid.Row="2" Text="Guidance (display only)" FontWeight="SemiBold" Margin="0,10,0,4" />
+                    <TextBox Grid.Row="3" Text="{Binding SelectedItem.Guidance, ElementName=SpecialFoldersList}" IsReadOnly="True" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto" />
                 </Grid>
             </TabItem>
         </TabControl>

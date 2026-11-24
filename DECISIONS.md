@@ -104,9 +104,9 @@
 
 ## 2026-11-24-09 Comparison tree uses a flattened indexed virtualized list
 - Context: the GUI must expose a large comparison tree without a plain TreeView or per-item collection notifications.
-- Decision: display a flattened visible preorder in a virtualized WPF ListView. Core keeps the UI-free rows in an indexed implicit treap, supporting range insertion/removal and index lookup without shifting the remaining visible suffix; each range operation sends one Reset collection notification.
+- Decision: display a flattened visible preorder in a virtualized WPF ListView. Core keeps the UI-free rows in an indexed implicit treap, supporting range insertion/removal and index lookup without shifting the remaining visible suffix; at the time, each range operation sent one Reset collection notification.
 - Alternatives considered and rejected: a plain TreeView does not satisfy the requested flat virtualized surface; a List-backed range collection shifts a large suffix on every insertion and repeated expansion can become quadratic; per-item notifications overwhelm the UI.
-- Impact / follow-ups: expansion and collapse create/remove only visible descendants and operate iteratively. Filtering or expanding to a path rebuilds the visible range once; the backing collection must remain indexable for WPF virtualization.
+- Impact / follow-ups: expansion and collapse create/remove only visible descendants and operate iteratively. Filtering or expanding to a path rebuilds the visible range once; the backing collection must remain indexable for WPF virtualization. The M4-C follow-up changes ranges of at most 200 rows to single-item notifications to preserve WPF scroll and selection; larger ranges still reset.
 
 ## 2026-11-24-10 Growth-only filter retains changed paths and ancestors
 - Context: growth filtering must make relevant descendants reachable without scanning subtrees repeatedly during UI interactions.

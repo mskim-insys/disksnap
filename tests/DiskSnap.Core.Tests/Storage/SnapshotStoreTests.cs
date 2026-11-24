@@ -10,6 +10,30 @@ namespace DiskSnap.Core.Tests.Storage;
 public sealed class SnapshotStoreTests
 {
     [Fact]
+    public async Task SettingsRoundTripAndInvalidOrCancelledSavePreservesPreviousFile()
+    {
+        using var fixture = new TempDirectory();
+        var store = new SnapshotStore(fixture.Path);
+        var settings = new DiskSnapSettings { MaxSnapshots = 3, DirectoryThreshold = 123, FileThreshold = 456 };
+        await store.SaveSettingsAsync(settings);
+        var loaded = await store.LoadSettingsAsync();
+        Assert.Equal(3, loaded.MaxSnapshots);
+        Assert.Equal(123, loaded.DirectoryThreshold);
+        Assert.Equal(456, loaded.FileThreshold);
+        var before = await File.ReadAllTextAsync(Path.Combine(fixture.Path, "settings.json"));
+        foreach (var invalid in new[] {
+            new DiskSnapSettings { MaxSnapshots = 0 },
+            new DiskSnapSettings { DirectoryThreshold = -1 },
+            new DiskSnapSettings { FileThreshold = -1 } })
+            await Assert.ThrowsAsync<InvalidDataException>(() => store.SaveSettingsAsync(invalid));
+        using var cancellation = new CancellationTokenSource();
+        cancellation.Cancel();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => store.SaveSettingsAsync(settings, cancellation.Token));
+        Assert.Equal(before, await File.ReadAllTextAsync(Path.Combine(fixture.Path, "settings.json")));
+        Assert.Empty(Directory.GetFiles(fixture.Path, "*.tmp"));
+    }
+
+    [Fact]
     public async Task WritesSnapshotsAndRetainsOnlyNewestForEachDrive()
     {
         using var fixture = new TempDirectory();

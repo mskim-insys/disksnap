@@ -17,6 +17,7 @@ public sealed partial class MainWindowViewModel : BindableObject
     private readonly SnapshotStore _snapshotStore;
     private readonly List<string> _snapshotWarnings = [];
     private CancellationTokenSource? _scanCancellation;
+    private Task _scanUpdateTail = Task.CompletedTask;
     private bool _isScanning;
     private string _currentPath = string.Empty;
     private long _itemsScanned;
@@ -203,7 +204,9 @@ public sealed partial class MainWindowViewModel : BindableObject
         ItemsScanned = 0;
         SkippedCount = 0;
         StatusMessage = "Scanning selected drives...";
-        IProgress<ScanServiceUpdate> progress = new Progress<ScanServiceUpdate>(update => _ = HandleScanUpdateAsync(update));
+        _scanUpdateTail = Task.CompletedTask;
+        IProgress<ScanServiceUpdate> progress = new Progress<ScanServiceUpdate>(update =>
+            _scanUpdateTail = ProcessScanUpdateAsync(_scanUpdateTail, update));
 
         try
         {
@@ -212,6 +215,8 @@ public sealed partial class MainWindowViewModel : BindableObject
                 progress.Report,
                 _scanCancellation.Token,
                 warnings).ConfigureAwait(true);
+            await System.Windows.Threading.Dispatcher.Yield(System.Windows.Threading.DispatcherPriority.Background);
+            await _scanUpdateTail;
             var messages = new List<string> { $"Scan complete: {result.SavedCount} saved, {result.FailedCount} failed." };
             messages.AddRange(result.Drives.Where(drive => !drive.Succeeded)
                 .Select(drive => $"{drive.RequestedDrive}: {drive.Error}"));
@@ -224,6 +229,8 @@ public sealed partial class MainWindowViewModel : BindableObject
         }
         catch (OperationCanceledException) when (_scanCancellation.IsCancellationRequested)
         {
+            await System.Windows.Threading.Dispatcher.Yield(System.Windows.Threading.DispatcherPriority.Background);
+            await _scanUpdateTail;
             var messages = new List<string> { "Scan cancelled." };
             messages.AddRange(_snapshotWarnings);
             if (warnings.GetStringBuilder().Length > 0)
@@ -234,7 +241,10 @@ public sealed partial class MainWindowViewModel : BindableObject
         }
         catch (Exception exception)
         {
-            StatusMessage = $"Scan failed: {exception.Message}";
+            await System.Windows.Threading.Dispatcher.Yield(System.Windows.Threading.DispatcherPriority.Background);
+            await _scanUpdateTail;
+            StatusMessage = $"Scan failed: {exception.Message}" +
+                (_snapshotWarnings.Count == 0 ? string.Empty : Environment.NewLine + string.Join(Environment.NewLine, _snapshotWarnings));
         }
         finally
         {
@@ -242,6 +252,21 @@ public sealed partial class MainWindowViewModel : BindableObject
             CurrentPath = string.Empty;
             _scanCancellation.Dispose();
             _scanCancellation = null;
+        }
+    }
+
+    private async Task ProcessScanUpdateAsync(Task previous, ScanServiceUpdate update)
+    {
+        try
+        {
+            await previous;
+            await HandleScanUpdateAsync(update);
+        }
+        catch (Exception exception)
+        {
+            var message = $"Could not process scan update: {exception.Message}";
+            _snapshotWarnings.Add(message);
+            StatusMessage = message;
         }
     }
 
