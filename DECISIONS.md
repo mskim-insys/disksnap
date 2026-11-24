@@ -42,11 +42,11 @@
 - Decision: v1 only provides the headless `--scan` command. The user registers a Task Scheduler task manually (run with highest privileges).
 - Impact / follow-ups: a UI for registering the task can be added later.
 
-## 2026-11-23-01 Open: enumerate cloud placeholder directories
+## 2026-11-23-01 Decided: enumerate cloud placeholder directories
 - Context: directory entries carrying `RECALL_ON_DATA_ACCESS` may represent cloud placeholders; opening them for enumeration may fetch placeholder contents over the network.
-- Decision: open. Keep current behavior unchanged until the user decides whether and how to enumerate these directories.
+- Decision: resolved by 2026-11-24-06.
 - Alternatives considered: enumerate normally and risk network hydration; skip such directories and report them as skipped, which may omit local data.
-- Impact / follow-ups: decide before scanning a drive that may contain cloud placeholder directories. No real-drive scan is authorized by this entry.
+- Impact / follow-ups: no real-drive scan is authorized by this entry.
 
 ## 2026-11-23-02 Error handling: unsupported enumeration errors depend on scan depth
 - Context: Win32 errors 1, 50, and 87 from bulk directory enumeration may indicate that the API is unsupported on the volume, but can also arise on an individual inner directory.
@@ -83,3 +83,15 @@
 - Decision: use the missing side's header threshold and report such file sizes and presence as unknown rather than inventing zero; preserve exact recorded directory deltas. Treat missing aggregates under expanded parents as zero recorded aggregate size, and unmeasured or ambiguous excluded sizes as unknown. See R17 for the complete rules.
 - Alternatives considered and rejected: treating every child missing under an expanded parent as new or removed fabricates file deltas and double-counts threshold crossings. Applying today's rules or thresholds to old snapshots cannot recover historical measurement choices.
 - Impact / follow-ups: consumers must support unknown sizes and presence and distinguish aggregate changes from individual file changes. The existing snapshot schema does not record enough information to disambiguate every exclusion.
+
+## 2026-11-24-06 Cloud placeholder directories: do not enumerate
+- Context: enumeration can recall remote directory contents. Microsoft documents OFFLINE (0x1000), RECALL_ON_OPEN (0x40000), and RECALL_ON_DATA_ACCESS (0x400000) in [File Attribute Constants](https://learn.microsoft.com/en-us/windows/win32/fileio/file-attribute-constants); RECALL_ON_OPEN shares its value with the internal EA attribute and is defined for directory enumeration.
+- Decision: do not enumerate directories carrying any of these bits, including while measuring exclusions. Represent a visible placeholder as a zero-size, zero-count collapsed directory with the existing `cloud` flag, even if a rule matches it. An enclosing measured exclusion remains an `x` entry and hides its descendants.
+- Alternatives considered and rejected: enumeration can cause network recall; reporting these as skipped would conflate deliberate placeholder handling with access failures.
+- Impact / follow-ups: local content inside such a directory may be omitted. No schema or header changes; no real-drive scan is authorized.
+
+## 2026-11-24-07 Observed files and culprit attribution
+- Context: a missing file can be folded, excluded, or skipped, and a child below the list threshold cannot replace a qualifying parent.
+- Decision: distinguish newly observed and no-longer-observed unknown files from exact new and removed entries. Permit a newly observed file meeting R18's size and attribution tests as an unknown-delta candidate, and expose its size minus the missing-side file threshold only as a conditional folding bound. A qualifying child can replace its parent only when it also meets `minDelta`. Omit the root by default, with an opt-in to include it.
+- Alternatives considered and rejected: claiming an unconditional lower bound or an exact delta would misrepresent exclusions and skipped paths; suppressing a parent for a child below `minDelta` can hide the entire culprit.
+- Impact / follow-ups: consumers must identify the folding assumption when displaying an "at least" value. Existing snapshots and headers remain unchanged.

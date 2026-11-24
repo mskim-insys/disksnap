@@ -189,6 +189,17 @@ public sealed class DiskScanner
             var isReparsePoint = (entry.Attributes & FileAttributeReparsePoint) != 0;
             var isLink = isReparsePoint && CloudPlaceholderClassifier.IsLinkTag(entry.ReparseTag);
 
+            if (isDirectory && CloudPlaceholderClassifier.IsCloudPlaceholderDirectory(entry.Attributes))
+            {
+                directory.Children.Add(new DirectoryRecord(childRelativePath)
+                {
+                    Kind = "c",
+                    RuleId = rule?.Id,
+                    Flags = ["cloud"]
+                });
+                continue;
+            }
+
             if (rule is not null && string.Equals(rule.Action, "exclude", StringComparison.OrdinalIgnoreCase))
             {
                 var excluded = MeasureExcluded(
@@ -326,7 +337,7 @@ public sealed class DiskScanner
             return;
         }
 
-        if (!isRoot && directory.Size < _options.DirectoryThreshold)
+        if (!isRoot && (directory.Kind == "c" || directory.Size < _options.DirectoryThreshold))
         {
             nodes.Add(new SnapshotNode
             {
@@ -334,7 +345,8 @@ public sealed class DiskScanner
                 Kind = "c",
                 Size = directory.Size,
                 FileCount = directory.FileCount,
-                RuleId = directory.RuleId
+                RuleId = directory.RuleId,
+                Flags = directory.Flags.Length == 0 ? null : directory.Flags
             });
             return;
         }

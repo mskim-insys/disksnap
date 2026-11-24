@@ -79,12 +79,70 @@ public sealed class SnapshotComparerTests
         var newer = Snapshot(0, Node("", "d", 440 * m), Node("a", "d", 200 * m), Node(@"a\child", "c", 130 * m), Node("b", "c", 190 * m), Node("s", "c", 50 * m));
         var result = SnapshotComparer.Compare(older, newer);
         var growers = result.TopGrowers();
-        Assert.Equal(new[] { "", "b", @"a\child" }, growers.Select(n => n.Path));
+        Assert.Equal(new[] { "b", @"a\child" }, growers.Select(n => n.Path));
+        Assert.Equal(new[] { "", "b", @"a\child" }, result.TopGrowers(includeRoot: true).Select(n => n.Path));
         Assert.DoesNotContain(growers, n => n.Path == "a");
         Assert.Equal(160, Find(result, @"a\child").PercentChange);
         Assert.Equal(new[] { "s" }, result.TopGrowers(shrinkers: true).Select(n => n.Path));
         Assert.Empty(result.TopGrowers(200 * m));
         Assert.Throws<ArgumentOutOfRangeException>(() => result.TopGrowers(-1));
+    }
+
+    [Fact]
+    public void ChildBelowMinimumDoesNotSuppressQualifyingParent()
+    {
+        const long m = 1024 * 1024;
+        var older = Snapshot(0, Node("", "d", 0), Node("p", "d", 0), Node(@"p\child", "c", 0));
+        var newer = Snapshot(0, Node("", "d", 55 * m), Node("p", "d", 55 * m), Node(@"p\child", "c", 48 * m));
+        var result = SnapshotComparer.Compare(older, newer);
+
+        Assert.Equal(new[] { "p" }, result.TopGrowers().Select(node => node.Path));
+        Assert.Equal(new[] { @"p\child" }, result.TopGrowers(48 * m).Select(node => node.Path));
+        var shrinkers = SnapshotComparer.Compare(newer, older);
+        Assert.Equal(new[] { "p" }, shrinkers.TopGrowers(shrinkers: true).Select(node => node.Path));
+        Assert.Equal(new[] { @"p\child" }, shrinkers.TopGrowers(48 * m, shrinkers: true).Select(node => node.Path));
+    }
+
+    [Fact]
+    public void ObservedFileCanAttributeGrowthWithoutInventingDelta()
+    {
+        const long m = 1024 * 1024;
+        var older = Snapshot(30 * m, Node("", "d", 100 * m), Node("p", "d", 100 * m));
+        var newer = Snapshot(10 * m, Node("", "d", 200 * m), Node("p", "d", 200 * m), Node(@"p\file", "f", 80 * m));
+        var result = SnapshotComparer.Compare(older, newer);
+        var file = Find(result, @"p\file");
+
+        Assert.Equal(NodePresence.Unknown, file.Presence);
+        Assert.Equal(FileObservation.NewlyObserved, file.Observation);
+        Assert.Null(file.Delta);
+        Assert.Equal(50 * m, file.FoldedFileChangeLowerBound);
+        Assert.Equal(new[] { @"p\file" }, result.TopGrowers().Select(node => node.Path));
+        Assert.Equal(new[] { "p" }, result.TopGrowers(81 * m).Select(node => node.Path));
+
+        var reversed = SnapshotComparer.Compare(newer, older);
+        var oldFile = Find(reversed, @"p\file");
+        Assert.Equal(FileObservation.NoLongerObserved, oldFile.Observation);
+        Assert.Null(oldFile.Delta);
+        Assert.Equal(50 * m, oldFile.FoldedFileChangeLowerBound);
+        Assert.DoesNotContain(reversed.TopGrowers(shrinkers: true), node => node.Path == @"p\file");
+    }
+
+    [Fact]
+    public void ObservedFileRequiresComparableParentAndEightyPercentButBoundMayBeUnavailable()
+    {
+        var older = Snapshot(100, Node("", "d", 100), Node("p", "c", 100));
+        var newer = Snapshot(5, Node("", "d", 200), Node("p", "d", 200), Node(@"p\file", "f", 79));
+        var result = SnapshotComparer.Compare(older, newer);
+        var file = Find(result, @"p\file");
+        Assert.Equal(FileObservation.NewlyObserved, file.Observation);
+        Assert.Null(file.FoldedFileChangeLowerBound);
+        Assert.Equal(new[] { "p" }, result.TopGrowers(1).Select(node => node.Path));
+
+        newer = Snapshot(5, Node("", "d", 200), Node("p", "d", 200), Node(@"p\file", "f", 80));
+        result = SnapshotComparer.Compare(older, newer);
+        Assert.Equal(new[] { @"p\file" }, result.TopGrowers(1).Select(node => node.Path));
+        Assert.Null(Find(result, @"p\file").FoldedFileChangeLowerBound);
+        Assert.Equal(FileObservation.None, result.Root.Observation);
     }
 
     [Fact]
@@ -183,7 +241,8 @@ public sealed class SnapshotComparerTests
         Assert.Equal(count + 1, result.Nodes.Count);
         Assert.Equal(count, result.Root.Children.Count);
         Assert.Equal(count, result.Root.Delta);
-        Assert.Equal(count + 1, result.TopGrowers(1).Count);
+        Assert.Equal(count, result.TopGrowers(1).Count);
+        Assert.Equal(count + 1, result.TopGrowers(1, includeRoot: true).Count);
     }
 
     private static ComparisonNode Find(SnapshotComparison comparison, string path) =>

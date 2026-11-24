@@ -351,6 +351,79 @@ public sealed class DiskScannerTests
         Assert.Contains("filesystem", exception.Message, StringComparison.OrdinalIgnoreCase);
     }
 
+    [Theory]
+    [InlineData(0x00001000u, false)]
+    [InlineData(0x00040000u, false)]
+    [InlineData(0x00400000u, false)]
+    [InlineData(0x00001000u, true)]
+    [InlineData(0x00040000u, true)]
+    [InlineData(0x00400000u, true)]
+    public async Task Scan_CloudDirectoryIsCollapsedWithoutEnumeration(uint attribute, bool measuredExclusion)
+    {
+        EnsureWindows();
+        using var fixture = new TempDirectory();
+        var placeholderPath = Path.Combine(fixture.Path, "placeholder");
+        var calls = new List<string>();
+        var scanner = new DiskScanner((path, _) =>
+        {
+            calls.Add(path);
+            Assert.Equal(fixture.Path, path);
+            return new[] { new WindowsDirectoryEnumerator.Entry("placeholder", 0x10 | attribute, 0, 0, Guid.Empty) };
+        });
+        var options = new ScannerOptions
+        {
+            DirectoryThreshold = 0,
+            FileThreshold = 0,
+            Rules = measuredExclusion ? new[] { Rule("measure", "placeholder", "exclude", measure: true) } : Array.Empty<ScanRule>()
+        };
+
+        var snapshot = await scanner.ScanAsyncForTests(fixture.Path, options);
+
+        Assert.DoesNotContain(calls, path => string.Equals(path, placeholderPath, StringComparison.OrdinalIgnoreCase));
+        var node = Assert.Single(snapshot.Nodes, node => node.Path == "placeholder");
+        Assert.Equal("c", node.Kind);
+        Assert.Equal(0, node.Size);
+        Assert.Equal(0, node.FileCount);
+        Assert.Equal(new[] { "cloud" }, node.Flags);
+        Assert.Equal(measuredExclusion ? "measure" : null, node.RuleId);
+    }
+
+    [Theory]
+    [InlineData(0x00001000u)]
+    [InlineData(0x00040000u)]
+    [InlineData(0x00400000u)]
+    public async Task Scan_MeasuredExclusionDoesNotEnumerateNestedCloudDirectory(uint attribute)
+    {
+        EnsureWindows();
+        using var fixture = new TempDirectory();
+        var measuredPath = Path.Combine(fixture.Path, "measured");
+        var placeholderPath = Path.Combine(measuredPath, "placeholder");
+        var calls = new List<string>();
+        var scanner = new DiskScanner((path, _) =>
+        {
+            calls.Add(path);
+            if (path == fixture.Path)
+                return new[] { new WindowsDirectoryEnumerator.Entry("measured", 0x10, 0, 0, Guid.Empty) };
+            Assert.Equal(measuredPath, path);
+            return new[] { new WindowsDirectoryEnumerator.Entry("placeholder", 0x10 | attribute, 0, 0, Guid.Empty) };
+        });
+
+        var snapshot = await scanner.ScanAsyncForTests(fixture.Path, new ScannerOptions
+        {
+            DirectoryThreshold = 0,
+            FileThreshold = 0,
+            Rules = new[] { Rule("measure", "measured", "exclude", measure: true) }
+        });
+
+        Assert.Contains(measuredPath, calls);
+        Assert.DoesNotContain(placeholderPath, calls);
+        var excluded = Assert.Single(snapshot.Nodes, node => node.Path == "measured");
+        Assert.Equal("x", excluded.Kind);
+        Assert.Equal(0, excluded.Size);
+        Assert.Equal(0, excluded.FileCount);
+        Assert.DoesNotContain(snapshot.Nodes, node => node.Path == @"measured\placeholder");
+    }
+
     [Fact]
     public async Task Scan_SmallExcludedFileKeepsItsPreviousAggregateOutput()
     {

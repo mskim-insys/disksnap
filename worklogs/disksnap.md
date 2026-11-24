@@ -3,15 +3,20 @@ Spec: specs/disksnap.md
 Status: in progress
 
 ## Handover
-- Current milestone: M3 closed; subsequent criteria are in the [spec](../specs/disksnap.md#acceptance-criteria).
-- Done and verified: M3 diff fixtures cover AC10 and passed in the user's elevated Release test run.
-- Not done / partial: Later milestone criteria remain unchecked in the spec.
-- First step next session: Review the next requested milestone and its spec criteria.
+- Current milestone: M3 closed; M3 follow-up implemented, awaiting the user's tests. Later criteria are in the [spec](../specs/disksnap.md#acceptance-criteria).
+- Done and verified: The user verified AC10 before the follow-up; the follow-up Release build succeeded.
+- Not done / partial: Follow-up tests were not run at the user's request; later milestone criteria remain unchecked.
+- First step next session: Review the user's elevated Release test results for the M3 follow-up.
 - Read first: `README.md`, `specs/disksnap.md`, `DECISIONS.md`, this Handover.
-- Traps: Do not scan a real drive or access `%LOCALAPPDATA%\DiskSnap` in tests. File thresholds are conditional folding evidence, not guaranteed bounds; exclusions can be ambiguous (2026-11-24-05). GUI elevation remains future work (2026-11-24-02).
-- Open questions: Cloud placeholder directory handling remains undecided (2026-11-23-01); the symlink privilege-missing skip path remains untested on an unprivileged machine.
+- Traps: Do not scan a real drive or access `%LOCALAPPDATA%\DiskSnap` in tests. Cloud directory contents may be omitted (2026-11-24-06); file change lower bounds assume folding and are not guaranteed when exclusions or skips apply (2026-11-24-07). GUI elevation remains future work (2026-11-24-02).
+- Open questions: The symlink privilege-missing skip path remains untested on an unprivileged machine.
 
 ## Sessions (newest first)
+### 2026-11-24 · M3 follow-up
+- Changed: Updated R5, R17 and R18; recorded 2026-11-24-06 and 2026-11-24-07. Added cloud-directory safeguards, qualifying child attribution, observed-file metadata and candidates, root visibility control, and regression fixtures.
+- Verified: `dotnet build DiskSnap.sln -c Release` succeeded with 0 warnings and 0 errors. Tests were not run at the user's request; no real-drive scans were performed.
+- Risks / open: The user will run the follow-up tests. An enclosing measured exclusion hides placeholder descendants; folding-based bounds are conditional.
+
 ### 2026-11-24 · M3 verification
 - Changed: Checked AC10 after reviewing the diff fixtures.
 - Verified: The user ran `dotnet test DiskSnap.sln -c Release` elevated: 57 total, 56 passed, 1 skipped (opt-in benchmark), 0 failed.
