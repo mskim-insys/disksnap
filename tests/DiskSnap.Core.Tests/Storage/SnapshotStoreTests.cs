@@ -1,4 +1,5 @@
 using System.Collections;
+using System.IO.Compression;
 using DiskSnap.Core.Scanning;
 using DiskSnap.Core.Snapshots;
 using DiskSnap.Core.Storage;
@@ -45,6 +46,86 @@ public sealed class SnapshotStoreTests
         Assert.True(File.Exists(newer));
         Assert.True(File.Exists(latest));
     }
+
+    [Fact]
+    public async Task RetentionSkipsUnreadableForeignAndInvalidCandidatesAndStillSucceeds()
+    {
+        using var fixture = new TempDirectory();
+        var store = new SnapshotStore(fixture.Path);
+        var old = await store.WriteAsync(Snapshot("C:", 1), 10);
+        var directory = Path.GetDirectoryName(old)!;
+        var foreign = Path.Combine(directory, "20200101-000001.jsonl.gz");
+        var invalid = Path.Combine(directory, "20200101-000002.jsonl.gz");
+        var missingType = Path.Combine(directory, "20200101-000003.jsonl.gz");
+        var unreadable = Path.Combine(directory, "20200101-000004.jsonl.gz");
+        await SnapshotFile.WriteAsync(foreign, Snapshot("D:", 1));
+        await File.WriteAllTextAsync(invalid, "not gzip");
+        await using (var file = File.Create(missingType))
+        await using (var gzip = new GZipStream(file, CompressionMode.Compress))
+        await using (var writer = new StreamWriter(gzip))
+        {
+            await writer.WriteLineAsync("{\"v\":1}");
+        }
+        await SnapshotFile.WriteAsync(unreadable, Snapshot("C:", 2));
+        using var locked = new FileStream(unreadable, FileMode.Open, FileAccess.Read, FileShare.None);
+        using var warnings = new StringWriter();
+
+        var saved = await store.WriteAsync(Snapshot("C:", 3), 1, warnings: warnings);
+
+        Assert.True(File.Exists(saved));
+        Assert.False(File.Exists(old));
+        foreach (var path in new[] { foreign, invalid, missingType, unreadable })
+        {
+            Assert.True(File.Exists(path));
+            Assert.Contains(path, warnings.ToString());
+        }
+        Assert.Contains("Warning", warnings.ToString());
+    }
+
+    [Fact]
+    public async Task WriteDeletesOnlyStaleMatchingTempsInItsDriveFolder()
+    {
+        using var fixture = new TempDirectory();
+        var store = new SnapshotStore(fixture.Path);
+        var directory = Directory.CreateDirectory(Path.Combine(fixture.Path, "snapshots", "C")).FullName;
+        var otherDirectory = Directory.CreateDirectory(Path.Combine(fixture.Path, "snapshots", "D")).FullName;
+        var nestedDirectory = Directory.CreateDirectory(Path.Combine(directory, "nested")).FullName;
+        var stale = Path.Combine(directory, ".ABCDEF0123456789abcdef0123456789.tmp");
+        var recent = Path.Combine(directory, ".11111111111111111111111111111111.tmp");
+        var wrongHex = Path.Combine(directory, ".g1111111111111111111111111111111.tmp");
+        var wrongLength = Path.Combine(directory, ".1111111111111111111111111111111.tmp");
+        var wrongExtension = Path.Combine(directory, ".22222222222222222222222222222222.TMP");
+        var other = Path.Combine(otherDirectory, ".33333333333333333333333333333333.tmp");
+        var nested = Path.Combine(nestedDirectory, ".44444444444444444444444444444444.tmp");
+        foreach (var path in new[] { stale, recent, wrongHex, wrongLength, wrongExtension, other, nested })
+        {
+            await File.WriteAllTextAsync(path, "keep");
+            File.SetLastWriteTimeUtc(path, DateTime.UtcNow.AddHours(path == recent ? -23 : -25));
+        }
+
+        var saved = await store.WriteAsync(Snapshot("C:", 1), 1);
+
+        Assert.True(File.Exists(saved));
+        Assert.False(File.Exists(stale));
+        foreach (var path in new[] { recent, wrongHex, wrongLength, wrongExtension, other, nested })
+        {
+            Assert.True(File.Exists(path));
+        }
+    }
+
+    [Theory]
+    [InlineData("C:", "C:")]
+    [InlineData("c:\\", "C:")]
+    public void NormalizesDriveAndRoot(string input, string expected) =>
+        Assert.Equal(expected, SnapshotStore.NormalizeDrive(input));
+
+    [Theory]
+    [InlineData("C:/")]
+    [InlineData("C:\\folder")]
+    [InlineData("1:")]
+    [InlineData("C:\\\\")]
+    public void RejectsNonDrivePaths(string input) =>
+        Assert.Throws<ArgumentException>(() => SnapshotStore.NormalizeDrive(input));
 
     [Theory]
     [InlineData(false)]
@@ -180,6 +261,34 @@ public sealed class SnapshotStoreTests
     }
 
     [Fact]
+    public async Task RunnerReportsFailureSummaryAndRetentionWarningsEvenWhenQuiet()
+    {
+        using var fixture = new TempDirectory();
+        var store = new SnapshotStore(fixture.Path);
+        var first = await store.WriteAsync(Snapshot("C:", 1), 10);
+        var invalid = Path.Combine(Path.GetDirectoryName(first)!, "20200101-000001.jsonl.gz");
+        await File.WriteAllTextAsync(invalid, "invalid");
+        var runner = new ScanRunner(store, (drive, _, _) => drive == "D:"
+            ? throw new IOException("drive unavailable")
+            : Task.FromResult(Snapshot(drive, 2)));
+        using var output = new StringWriter();
+        using var error = new StringWriter();
+
+        Assert.Equal(1, await runner.RunAsync(["C:", "D:"], false, output, error));
+        Assert.EndsWith($"Done: 1 saved, 1 failed{Environment.NewLine}", output.ToString());
+        Assert.Contains(invalid, error.ToString());
+        Assert.True(File.Exists(invalid));
+
+        using var quietOutput = new StringWriter();
+        using var quietError = new StringWriter();
+        var quietRunner = new ScanRunner(store, (drive, _, _) => Task.FromResult(Snapshot(drive, 3)));
+        Assert.Equal(0, await quietRunner.RunAsync(["C:"], true, quietOutput, quietError));
+        Assert.Equal("", quietOutput.ToString());
+        Assert.Contains(invalid, quietError.ToString());
+        Assert.True(File.Exists(invalid));
+    }
+
+    [Fact]
     public async Task CancelledScanDoesNotWriteOrRetain()
     {
         using var fixture = new TempDirectory();
@@ -209,8 +318,9 @@ public sealed class SnapshotStoreTests
         var runner = new ScanRunner(store, (drive, _, _) => Task.FromResult(Snapshot(drive, 1)));
         using var output = new StringWriter();
         using var error = new StringWriter();
-        Assert.Equal(0, await runner.RunAsync(["c:", "d:"], false, output, error));
+        Assert.Equal(0, await runner.RunAsync(["c:\\", "d:"], false, output, error));
         Assert.Contains("Saved", output.ToString());
+        Assert.EndsWith($"Done: 2 saved, 0 failed{Environment.NewLine}", output.ToString());
         Assert.Equal("", error.ToString());
         Assert.True(File.Exists(Path.Combine(fixture.Path, "rules.json")));
         Assert.NotEmpty(await store.LoadRulesAsync());

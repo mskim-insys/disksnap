@@ -1,6 +1,6 @@
 # Spec: DiskSnap
 Status: active
-Last updated: 2026-11-13
+Last updated: 2026-11-24
 
 ## Goal
 A personal Windows tool that records disk-usage snapshots of one or more drives and compares two snapshots, so that when free space suddenly drops the user can see which folder or file grew. Comparison is the main feature. The scan must be cheap enough to run routinely, and snapshots small enough to keep many.
@@ -29,8 +29,8 @@ A personal Windows tool that records disk-usage snapshots of one or more drives 
 
 ### Snapshot storage
 - R11 Location: `%LOCALAPPDATA%\DiskSnap\snapshots\<drive letter>\<yyyyMMdd-HHmmss>.jsonl.gz` (local time in the name, UTC inside the header). Settings in `%LOCALAPPDATA%\DiskSnap\settings.json`.
-- R12 Write path: stream through GZipStream into a temp file in the same folder, then rename on success. A cancelled or failed scan leaves no snapshot and deletes nothing.
-- R13 Retention: keep the newest `maxSnapshots` per drive (default 30, configurable). After a successful new snapshot, delete the oldest beyond the limit. The user can also delete snapshots manually in the UI.
+- R12 Write path: stream through GZipStream into a temp file in the same folder, then rename on success. A cancelled or failed scan leaves no snapshot and does not delete existing snapshots. At the start of a store write, delete only files named `.<32 hex>.tmp` older than 24 hours in that drive's snapshot folder; warn if cleanup fails.
+- R13 Retention: keep the newest `maxSnapshots` valid snapshots per drive (default 30, configurable). After a successful new snapshot, delete the oldest beyond the limit. Unreadable, foreign-drive, or invalid-header files are skipped, never deleted, and reported as warnings without failing the write. The user can also delete snapshots manually in the UI.
 - R14 Format: JSON Lines, UTF-8. Line 1 is the header. All later lines are nodes in depth-first order.
   - Header: `{"t":"hdr","v":1,"tool":"DiskSnap x.y.z","drive":"C:","volSerial":"...","fs":"NTFS","utc":"...","host":"...","elevated":true,"volTotal":0,"volFree":0,"metric":"allocated","dirThreshold":0,"fileThreshold":0,"scanSeconds":0,"skipped":{"count":0,"sample":[]}}`
   - Node: `{"p":"Users\\me\\AppData","k":"d","s":123456,"n":4567}`
@@ -61,7 +61,7 @@ A personal Windows tool that records disk-usage snapshots of one or more drives 
   - Main pane tabs: Compare (tree), Top growers (flat), Special folders.
   - Compare tree columns: Name, Older, Newer, Delta, Delta %, a delta bar. Siblings sorted by absolute delta descending. A "growth only" filter. Context menu: open in Explorer, copy path. A "Jump to biggest grower" action expands the path to the largest culprit.
   - The tree must stay responsive with hundreds of thousands of nodes: virtualized, nodes built lazily.
-- R20 Headless: `DiskSnap.exe --scan C: D: [--quiet]` runs without a window, writes snapshots, applies retention, and exits with 0 on success and non-zero if any drive failed. Intended for Task Scheduler with highest privileges.
+- R20 Headless: `DiskSnap.exe --scan C: D: [--quiet]` runs without a window, writes snapshots, applies retention, and exits with 0 on success and non-zero if any drive failed. Ctrl+C cancels the scan. Unless quiet, print a final count of saved and failed drives. Intended for Task Scheduler with highest privileges.
 
 ### Default rules
 Guidance text below is a draft for display only. Verify each command against current Microsoft documentation before shipping and never execute anything automatically.

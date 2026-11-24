@@ -2,9 +2,11 @@
 Personal Windows tool that records disk-usage snapshots and compares two of them to show which folder or file grew.
 
 ## Usage
-`DiskSnap.exe --scan C: D: [--quiet]` scans each listed drive without opening a window. It returns zero only if every drive succeeds. `--quiet` suppresses progress, not errors or the warning when not elevated. For Task Scheduler, run with highest privileges. The GUI is not yet implemented.
+`DiskSnap.exe --scan C: D: [--quiet]` scans each listed drive without opening a window. It returns zero only if every drive succeeds. `--quiet` suppresses progress and the final summary, not errors or warnings. Ctrl+C cancels a headless scan. The GUI is not yet implemented.
 
-Snapshots are stored under `%LOCALAPPDATA%\DiskSnap\snapshots\<drive letter>`; `settings.json` and editable `rules.json` are in `%LOCALAPPDATA%\DiskSnap`. Defaults are created on first headless use. Settings are `maxSnapshots` (default 30), `dirThreshold` (default 268435456 bytes), and `fileThreshold` (default 67108864 bytes). Retention runs only after a successful write. A same-second filename collision fails rather than overwriting a snapshot.
+DiskSnap.exe is a windowless program; in cmd, use `start /wait DiskSnap.exe --scan X:` and then `echo %ERRORLEVEL%` to see its exit code. Task Scheduler is unaffected; run scheduled scans with highest privileges.
+
+Snapshots are stored under `%LOCALAPPDATA%\DiskSnap\snapshots\<drive letter>`; `settings.json` and editable `rules.json` are in `%LOCALAPPDATA%\DiskSnap`. Defaults are created on first headless use. Settings are `maxSnapshots` (default 30), `dirThreshold` (default 268435456 bytes), and `fileThreshold` (default 67108864 bytes). Retention runs only after a successful write; unreadable, invalid, or foreign-drive candidates are left in place with a warning. A same-second filename collision fails rather than overwriting a snapshot. At the start of a write, stale `.<32 hex>.tmp` files older than 24 hours are cleaned from that drive's snapshot folder.
 
 ## Build and run
 See Commands in AGENTS.md.

@@ -70,4 +70,10 @@
 - Context: local filenames have only second precision and can collide, including during a daylight-saving transition; local filename order can differ from actual chronological order.
 - Decision: never overwrite an existing filename; report the collision as a failed write and do not run retention. Sort retention by the UTC header, with filename as a deterministic tie-breaker, and validate candidate headers before deleting.
 - Alternatives considered and rejected: overwriting would lose an existing snapshot; inventing a timestamp or suffix would violate the specified filename or misstate the scan time.
-- Impact / follow-ups: a scan completed in the same local second as an existing snapshot must be retried after that second; an invalid candidate header blocks retention and is reported.
+- Impact / follow-ups: a scan completed in the same local second as an existing snapshot must be retried after that second; candidate error handling is refined by 2026-11-24-04.
+
+## 2026-11-24-04 Retention skips unsafe candidates
+- Context: 2026-11-24-03 made an invalid candidate block retention after the new snapshot was already saved, making a successful write appear to fail.
+- Decision: warn on stderr and skip unreadable, foreign-drive, or invalid-header candidates without deleting them; retain valid candidates using the existing UTC ordering. The saved path and successful exit remain available.
+- Alternatives considered and rejected: failing the write after saving misreports success; deleting an unvalidated candidate risks losing unrelated or unreadable data.
+- Impact / follow-ups: the folder may contain more than `maxSnapshots` files because skipped candidates do not count toward retention.

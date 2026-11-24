@@ -38,7 +38,8 @@ public sealed class ScanRunner
             FileThreshold = settings.FileThreshold,
             Rules = rules
         };
-        var failed = false;
+        var saved = 0;
+        var failed = 0;
         foreach (var requestedDrive in drives)
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -56,7 +57,8 @@ public sealed class ScanRunner
                     throw new InvalidDataException("The scanned snapshot belongs to a different drive.");
                 }
 
-                var path = await _store.WriteAsync(snapshot, settings.MaxSnapshots, cancellationToken).ConfigureAwait(false);
+                var path = await _store.WriteAsync(snapshot, settings.MaxSnapshots, cancellationToken, error).ConfigureAwait(false);
+                saved++;
                 if (!quiet)
                 {
                     await output.WriteLineAsync($"Saved {path}").ConfigureAwait(false);
@@ -68,11 +70,15 @@ public sealed class ScanRunner
             }
             catch (Exception exception)
             {
-                failed = true;
+                failed++;
                 await error.WriteLineAsync($"Scan of '{requestedDrive}' failed: {exception.Message}").ConfigureAwait(false);
             }
         }
 
-        return failed ? 1 : 0;
+        if (!quiet)
+        {
+            await output.WriteLineAsync($"Done: {saved} saved, {failed} failed").ConfigureAwait(false);
+        }
+        return failed > 0 ? 1 : 0;
     }
 }

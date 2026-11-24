@@ -18,6 +18,13 @@ internal static class Program
         }
 
         AttachConsole(unchecked((uint)-1));
+        using var cancellation = new CancellationTokenSource();
+        ConsoleCancelEventHandler cancelHandler = (_, eventArgs) =>
+        {
+            eventArgs.Cancel = true;
+            cancellation.Cancel();
+        };
+        Console.CancelKeyPress += cancelHandler;
         try
         {
             if (!string.Equals(args[0], "--scan", StringComparison.OrdinalIgnoreCase))
@@ -50,12 +57,16 @@ internal static class Program
                 Console.Error.WriteLine("Warning: running without administrator privileges; some paths may be skipped.");
             }
 
-            return new ScanRunner(new SnapshotStore()).RunAsync(drives, quiet, Console.Out, Console.Error).GetAwaiter().GetResult();
+            return new ScanRunner(new SnapshotStore()).RunAsync(drives, quiet, Console.Out, Console.Error, cancellation.Token).GetAwaiter().GetResult();
         }
         catch (Exception exception)
         {
             Console.Error.WriteLine($"DiskSnap failed: {exception.Message}");
             return 1;
+        }
+        finally
+        {
+            Console.CancelKeyPress -= cancelHandler;
         }
     }
 

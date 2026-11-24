@@ -5,6 +5,7 @@ namespace DiskSnap.Core.Snapshots;
 public sealed class SnapshotHeader
 {
     [JsonPropertyName("t")]
+    [JsonRequired]
     public string Type { get; init; } = "hdr";
 
     [JsonPropertyName("v")]

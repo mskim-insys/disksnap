@@ -4,14 +4,19 @@ Status: in progress
 
 ## Handover
 - Current milestone: M2; exit criteria remain unchecked in the [spec](../specs/disksnap.md#acceptance-criteria).
-- Done and verified: M1 follow-up and M2 implementation build in Release; the earlier M1 suite passed as reported below.
-- Not done / partial: M2 runtime verification awaits the user's elevated test results; no acceptance criteria were checked this session.
-- First step next session: Review the user's elevated test results, resolve failures, and confirm the M2 criteria before considering M3.
+- Done and verified: M2 follow-up builds in Release; retention skips unsafe candidates, stale temps are cleaned, and headless cancellation and summaries are wired.
+- Not done / partial: M2 tests and runtime verification await the user; no acceptance criteria were checked this session.
+- First step next session: Review the user's elevated test results and resolve any failures.
 - Read first: `README.md`, `specs/disksnap.md`, `DECISIONS.md`, this Handover.
-- Traps: Do not scan a real drive or access `%LOCALAPPDATA%\DiskSnap` in tests. Tests use temp stores and injected scanners. GUI elevation remains future work (2026-11-24-02).
+- Traps: Do not scan a real drive or access `%LOCALAPPDATA%\DiskSnap` in tests. GUI elevation remains future work (2026-11-24-02); invalid retention candidates are preserved (2026-11-24-04).
 - Open questions: Decide cloud placeholder directory handling before the first real-drive scan (2026-11-23-01); the symlink privilege-missing skip path remains untested on an unprivileged machine.
 
 ## Sessions (newest first)
+### 2026-11-24 · M2 follow-up
+- Changed: Made retention skip unsafe candidates with warnings, added stale-temp cleanup, wired Ctrl+C, added headless summaries and drive-root normalization, updated temp-store tests and usage docs; recorded 2026-11-24-04.
+- Verified: `dotnet build DiskSnap.sln -c Release` succeeded; tests were not run at the user's request. No real-drive scans were performed.
+- Risks / open: [M2 criteria](../specs/disksnap.md#acceptance-criteria) await user verification; compressed size and full-drive timing remain unmeasured.
+
 ### 2026-11-24 · M2
 - Changed: Added the injectable snapshot store, atomic gzip writes, UTC-ordered per-drive retention, settings and rules loading, and a Core scan runner with a windowless executable entry point. Added temp-only regression fixtures.
 - Verified: `dotnet build DiskSnap.sln -c Release` succeeded; tests were not run at the user's request. No real-drive scans were performed.

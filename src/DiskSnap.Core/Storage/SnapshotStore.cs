@@ -96,9 +96,10 @@ public sealed class SnapshotStore
         return await ScanRules.LoadAsync(path, cancellationToken).ConfigureAwait(false);
     }
 
-    public async Task<string> WriteAsync(Snapshot snapshot, int maxSnapshots, CancellationToken cancellationToken = default)
+    public async Task<string> WriteAsync(Snapshot snapshot, int maxSnapshots, CancellationToken cancellationToken = default, TextWriter? warnings = null)
     {
         ArgumentNullException.ThrowIfNull(snapshot);
+        warnings ??= Console.Error;
         if (maxSnapshots < 1)
         {
             throw new ArgumentOutOfRangeException(nameof(maxSnapshots));
@@ -119,6 +120,7 @@ public sealed class SnapshotStore
         RejectReparsePoint(snapshotsDirectory);
         Directory.CreateDirectory(driveDirectory);
         RejectReparsePoint(driveDirectory);
+        await CleanupStaleTempsAsync(driveDirectory, warnings, cancellationToken).ConfigureAwait(false);
 
         var finalPath = Path.Combine(driveDirectory, utc.ToLocalTime().ToString("yyyyMMdd-HHmmss", CultureInfo.InvariantCulture) + ".jsonl.gz");
         var tempPath = Path.Combine(driveDirectory, $".{Guid.NewGuid():N}.tmp");
@@ -143,22 +145,52 @@ public sealed class SnapshotStore
             }
         }
 
-        await ApplyRetentionAsync(driveDirectory, drive, maxSnapshots).ConfigureAwait(false);
+        await ApplyRetentionAsync(driveDirectory, drive, maxSnapshots, warnings).ConfigureAwait(false);
         return finalPath;
     }
 
     public static string NormalizeDrive(string drive)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(drive);
-        if (drive.Length != 2 || !char.IsAsciiLetter(drive[0]) || drive[1] != ':')
+        if ((drive.Length != 2 && !(drive.Length == 3 && drive[2] == '\\')) ||
+            !char.IsAsciiLetter(drive[0]) || drive[1] != ':')
         {
-            throw new ArgumentException("Drive must be a letter followed by a colon, for example C:.", nameof(drive));
+            throw new ArgumentException("Drive must be a letter followed by a colon, optionally with a trailing backslash, for example C:.", nameof(drive));
         }
 
         return char.ToUpperInvariant(drive[0]) + ":";
     }
 
-    private async Task ApplyRetentionAsync(string driveDirectory, string drive, int maxSnapshots)
+    private async Task CleanupStaleTempsAsync(string driveDirectory, TextWriter warnings, CancellationToken cancellationToken)
+    {
+        var cutoff = DateTime.UtcNow.AddHours(-24);
+        foreach (var path in Directory.EnumerateFiles(driveDirectory, "*.tmp"))
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var name = Path.GetFileName(path);
+            if (name.Length != 37 || name[0] != '.' || !name.EndsWith(".tmp", StringComparison.Ordinal) ||
+                !name.AsSpan(1, 32).ToString().All(char.IsAsciiHexDigit))
+            {
+                continue;
+            }
+
+            CheckStoreDirectories(driveDirectory);
+            try
+            {
+                RejectReparsePoint(path);
+                if (File.GetLastWriteTimeUtc(path) < cutoff)
+                {
+                    File.Delete(path);
+                }
+            }
+            catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+            {
+                await warnings.WriteLineAsync($"Warning: could not clean temporary file '{path}': {exception.Message}").ConfigureAwait(false);
+            }
+        }
+    }
+
+    private async Task ApplyRetentionAsync(string driveDirectory, string drive, int maxSnapshots, TextWriter warnings)
     {
         CheckStoreDirectories(driveDirectory);
         var prefix = Path.GetFullPath(driveDirectory).TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
@@ -170,14 +202,25 @@ public sealed class SnapshotStore
             {
                 continue;
             }
-            RejectReparsePoint(path);
-            var header = await SnapshotFile.ReadHeaderAsync(path).ConfigureAwait(false);
-            if (!string.Equals(NormalizeDrive(header.Drive), drive, StringComparison.Ordinal) ||
-                !DateTimeOffset.TryParse(header.Utc, CultureInfo.InvariantCulture, DateTimeStyles.None, out var utc))
+            try
             {
-                throw new InvalidDataException($"Invalid snapshot header in '{path}'.");
+                RejectReparsePoint(path);
+                var header = await SnapshotFile.ReadHeaderAsync(path).ConfigureAwait(false);
+                if (header.Version != 1 || string.IsNullOrWhiteSpace(header.Drive) ||
+                    !string.Equals(NormalizeDrive(header.Drive), drive, StringComparison.Ordinal) ||
+                    !DateTimeOffset.TryParse(header.Utc, CultureInfo.InvariantCulture, DateTimeStyles.None, out var utc) ||
+                    string.IsNullOrWhiteSpace(header.Tool) || string.IsNullOrWhiteSpace(header.VolumeSerial) ||
+                    string.IsNullOrWhiteSpace(header.FileSystem) || string.IsNullOrWhiteSpace(header.Host) ||
+                    header.Metric != "allocated" || header.Skipped is null || header.Skipped.Sample is null)
+                {
+                    throw new InvalidDataException("Invalid or foreign-drive snapshot header.");
+                }
+                candidates.Add((path, utc.ToUniversalTime()));
             }
-            candidates.Add((path, utc.ToUniversalTime()));
+            catch (Exception exception) when (exception is IOException or InvalidDataException or UnauthorizedAccessException or JsonException or ArgumentException)
+            {
+                await warnings.WriteLineAsync($"Warning: skipping retention candidate '{path}': {exception.Message}").ConfigureAwait(false);
+            }
         }
 
         foreach (var (path, _) in candidates.OrderByDescending(item => item.Utc)
