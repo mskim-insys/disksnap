@@ -149,6 +149,100 @@ public sealed class SnapshotStore
         return finalPath;
     }
 
+    public async Task<IReadOnlyList<SnapshotInfo>> ListSnapshotsAsync(
+        string requestedDrive,
+        TextWriter? warnings = null,
+        CancellationToken cancellationToken = default)
+    {
+        var drive = NormalizeDrive(requestedDrive);
+        warnings ??= Console.Error;
+        var snapshotsDirectory = Path.Combine(_baseDirectory, "snapshots");
+        var driveDirectory = Path.Combine(snapshotsDirectory, drive[..1]);
+        if (!Directory.Exists(_baseDirectory) || !Directory.Exists(snapshotsDirectory) || !Directory.Exists(driveDirectory))
+        {
+            return Array.Empty<SnapshotInfo>();
+        }
+
+        CheckStoreDirectories(driveDirectory);
+        var snapshots = new List<SnapshotInfo>();
+        foreach (var candidate in Directory.EnumerateFiles(driveDirectory, "*.jsonl.gz"))
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var path = Path.GetFullPath(candidate);
+            if (!IsSnapshotName(Path.GetFileName(path)))
+            {
+                continue;
+            }
+
+            try
+            {
+                CheckStoreDirectories(driveDirectory);
+                RejectReparsePoint(path);
+                var header = await SnapshotFile.ReadHeaderAsync(path).ConfigureAwait(false);
+                var utc = ValidateCandidateHeader(header, drive);
+                snapshots.Add(new SnapshotInfo(
+                    path,
+                    utc,
+                    new FileInfo(path).Length,
+                    new SnapshotHeaderSummary(
+                        header.Drive,
+                        header.VolumeSerial,
+                        header.FileSystem,
+                        header.VolumeTotal,
+                        header.VolumeFree,
+                        header.ScanSeconds,
+                        header.Skipped.Count)));
+            }
+            catch (Exception exception) when (exception is IOException or InvalidDataException or UnauthorizedAccessException or JsonException or ArgumentException)
+            {
+                await warnings.WriteLineAsync($"Warning: skipping snapshot '{path}': {exception.Message}").ConfigureAwait(false);
+            }
+        }
+
+        return snapshots.OrderByDescending(snapshot => snapshot.Utc)
+            .ThenByDescending(snapshot => snapshot.Path, StringComparer.Ordinal)
+            .ToArray();
+    }
+
+    public async Task DeleteSnapshotAsync(string snapshotPath, CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(snapshotPath);
+        cancellationToken.ThrowIfCancellationRequested();
+        var path = Path.GetFullPath(snapshotPath);
+        var driveDirectory = Path.GetDirectoryName(path);
+        var snapshotsDirectory = Path.Combine(_baseDirectory, "snapshots");
+        if (driveDirectory is null ||
+            !string.Equals(Path.GetDirectoryName(driveDirectory), snapshotsDirectory, StringComparison.OrdinalIgnoreCase) ||
+            Path.GetFileName(driveDirectory).Length != 1 ||
+            !IsSnapshotName(Path.GetFileName(path)))
+        {
+            throw new IOException($"Snapshot deletion target is outside the drive store: '{path}'.");
+        }
+
+        var drive = NormalizeDrive(Path.GetFileName(driveDirectory) + ":");
+        var expectedDirectory = Path.Combine(snapshotsDirectory, drive[..1]);
+        var prefix = Path.GetFullPath(expectedDirectory).TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
+        if (!path.StartsWith(prefix, StringComparison.OrdinalIgnoreCase) ||
+            !string.Equals(Path.GetDirectoryName(path), expectedDirectory, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new IOException($"Snapshot deletion target is outside the drive store: '{path}'.");
+        }
+
+        CheckStoreDirectories(expectedDirectory);
+        RejectReparsePoint(path);
+        if (!File.Exists(path))
+        {
+            throw new FileNotFoundException("The snapshot to delete does not exist.", path);
+        }
+
+        var header = await SnapshotFile.ReadHeaderAsync(path).ConfigureAwait(false);
+        ValidateCandidateHeader(header, drive);
+        CheckStoreDirectories(expectedDirectory);
+        RejectReparsePoint(path);
+        cancellationToken.ThrowIfCancellationRequested();
+        File.Delete(path);
+    }
+
     public static string NormalizeDrive(string drive)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(drive);
@@ -206,16 +300,7 @@ public sealed class SnapshotStore
             {
                 RejectReparsePoint(path);
                 var header = await SnapshotFile.ReadHeaderAsync(path).ConfigureAwait(false);
-                if (header.Version != 1 || string.IsNullOrWhiteSpace(header.Drive) ||
-                    !string.Equals(NormalizeDrive(header.Drive), drive, StringComparison.Ordinal) ||
-                    !DateTimeOffset.TryParse(header.Utc, CultureInfo.InvariantCulture, DateTimeStyles.None, out var utc) ||
-                    string.IsNullOrWhiteSpace(header.Tool) || string.IsNullOrWhiteSpace(header.VolumeSerial) ||
-                    string.IsNullOrWhiteSpace(header.FileSystem) || string.IsNullOrWhiteSpace(header.Host) ||
-                    header.Metric != "allocated" || header.Skipped is null || header.Skipped.Sample is null)
-                {
-                    throw new InvalidDataException("Invalid or foreign-drive snapshot header.");
-                }
-                candidates.Add((path, utc.ToUniversalTime()));
+                candidates.Add((path, ValidateCandidateHeader(header, drive)));
             }
             catch (Exception exception) when (exception is IOException or InvalidDataException or UnauthorizedAccessException or JsonException or ArgumentException)
             {
@@ -243,6 +328,21 @@ public sealed class SnapshotStore
         RejectReparsePoint(_baseDirectory);
         RejectReparsePoint(Path.Combine(_baseDirectory, "snapshots"));
         RejectReparsePoint(driveDirectory);
+    }
+
+    private static DateTimeOffset ValidateCandidateHeader(SnapshotHeader header, string drive)
+    {
+        if (header.Version != 1 || string.IsNullOrWhiteSpace(header.Drive) ||
+            !string.Equals(NormalizeDrive(header.Drive), drive, StringComparison.Ordinal) ||
+            !DateTimeOffset.TryParse(header.Utc, CultureInfo.InvariantCulture, DateTimeStyles.None, out var utc) ||
+            string.IsNullOrWhiteSpace(header.Tool) || string.IsNullOrWhiteSpace(header.VolumeSerial) ||
+            string.IsNullOrWhiteSpace(header.FileSystem) || string.IsNullOrWhiteSpace(header.Host) ||
+            header.Metric != "allocated" || header.Skipped is null || header.Skipped.Sample is null)
+        {
+            throw new InvalidDataException("Invalid or foreign-drive snapshot header.");
+        }
+
+        return utc.ToUniversalTime();
     }
 
     private static bool IsSnapshotName(string name) =>

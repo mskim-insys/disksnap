@@ -574,6 +574,36 @@ public sealed class DiskScannerTests
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => scan.WaitAsync(TimeSpan.FromSeconds(5)));
     }
 
+    [Fact]
+    public async Task Scan_ReportsThrottledProgressWithFinalItemAndSkippedCounts()
+    {
+        EnsureWindows();
+        using var fixture = new TempDirectory();
+        var entries = Enumerable.Range(0, 5000)
+            .Select(index => new WindowsDirectoryEnumerator.Entry($"item-{index:D4}", 0, 0, 1, Guid.NewGuid()))
+            .ToArray();
+        var scanner = new DiskScanner((_, cancellationToken) =>
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            return entries;
+        });
+        var progress = new RecordingProgress<ScanProgress>();
+
+        var snapshot = await scanner.ScanAsyncForTests(fixture.Path, new ScannerOptions
+        {
+            DirectoryThreshold = 0,
+            FileThreshold = 0,
+            Rules = Array.Empty<ScanRule>()
+        }, progress: progress);
+
+        Assert.Equal(5001, snapshot.Nodes.Count);
+        Assert.NotEmpty(progress.Values);
+        Assert.True(progress.Values.Count < entries.Length);
+        Assert.Equal(entries.Length, progress.Values[^1].ItemsScanned);
+        Assert.Equal(0, progress.Values[^1].SkippedCount);
+        Assert.EndsWith("item-4999", progress.Values[^1].CurrentPath, StringComparison.Ordinal);
+    }
+
     [Theory]
     [InlineData(0x00001000u)]
     [InlineData(0x00400000u)]
@@ -602,6 +632,12 @@ public sealed class DiskScannerTests
             HardLinkDeduplicationThreshold = long.MaxValue,
             Rules = Array.Empty<ScanRule>()
         });
+
+    private sealed class RecordingProgress<T> : IProgress<T>
+    {
+        public List<T> Values { get; } = [];
+        public void Report(T value) => Values.Add(value);
+    }
 
     private static ScanRule Rule(string id, string pattern, string action, bool measure) => new()
     {

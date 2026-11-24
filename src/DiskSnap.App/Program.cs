@@ -1,3 +1,5 @@
+using System.ComponentModel;
+using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Security.Principal;
 using DiskSnap.Core.Scanning;
@@ -12,9 +14,40 @@ internal static class Program
     {
         if (args.Length == 0)
         {
-            var app = new App();
-            app.InitializeComponent();
-            return app.Run();
+            if (!IsElevated())
+            {
+                try
+                {
+                    var startInfo = new ProcessStartInfo(Environment.ProcessPath
+                        ?? throw new InvalidOperationException("The executable path is unavailable."))
+                    {
+                        UseShellExecute = true,
+                        Verb = "runas"
+                    };
+                    startInfo.ArgumentList.Add("--gui");
+                    using var elevatedProcess = Process.Start(startInfo);
+                    if (elevatedProcess is not null)
+                    {
+                        return 0;
+                    }
+
+                    return RunGui("Administrator restart did not start; continuing without elevation.");
+                }
+                catch (Win32Exception exception)
+                {
+                    var warning = exception.NativeErrorCode == 1223
+                        ? "Administrator privileges were declined; continuing without elevation. Some paths may be skipped."
+                        : $"Could not restart as administrator; continuing without elevation. {exception.Message}";
+                    return RunGui(warning);
+                }
+            }
+
+            return RunGui();
+        }
+
+        if (args.Length == 1 && string.Equals(args[0], "--gui", StringComparison.OrdinalIgnoreCase))
+        {
+            return RunGui(IsElevated() ? null : "DiskSnap is running without administrator privileges. Some paths may be skipped.");
         }
 
         AttachConsole(unchecked((uint)-1));
@@ -68,6 +101,13 @@ internal static class Program
         {
             Console.CancelKeyPress -= cancelHandler;
         }
+    }
+
+    private static int RunGui(string? warning = null)
+    {
+        var app = new App { StartupWarning = warning };
+        app.InitializeComponent();
+        return app.Run();
     }
 
     private static bool IsElevated()

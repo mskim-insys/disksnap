@@ -3,15 +3,21 @@ Spec: specs/disksnap.md
 Status: in progress
 
 ## Handover
-- Current milestone: M3 closed; M3 follow-up implemented, awaiting the user's tests. Later criteria are in the [spec](../specs/disksnap.md#acceptance-criteria).
-- Done and verified: The user verified AC10 before the follow-up; the follow-up Release build succeeded.
-- Not done / partial: Follow-up tests were not run at the user's request; later milestone criteria remain unchecked.
-- First step next session: Review the user's elevated Release test results for the M3 follow-up.
+- Current milestone: M4-A (GUI shell, scan, and snapshot list); M4-B remains. Milestone criteria are in the [spec](../specs/disksnap.md#milestones).
+- Done and verified: M4-A implementation builds with `dotnet build DiskSnap.sln -c Release`; temp-only regression tests were added but not run.
+- Not done / partial: User test run and manual GUI check are pending. Do not mark AC12 complete; the comparison tabs remain placeholders.
+- First step next session: Review the user's M4-A test and GUI-check results before starting M4-B.
 - Read first: `README.md`, `specs/disksnap.md`, `DECISIONS.md`, this Handover.
-- Traps: Do not scan a real drive or access `%LOCALAPPDATA%\DiskSnap` in tests. Cloud directory contents may be omitted (2026-11-24-06); file change lower bounds assume folding and are not guaranteed when exclusions or skips apply (2026-11-24-07). GUI elevation remains future work (2026-11-24-02).
+- Traps: Do not scan a real drive or access `%LOCALAPPDATA%\DiskSnap` in tests. Cloud directory contents may be omitted (2026-11-24-06); file change lower bounds assume folding and are not guaranteed when exclusions or skips apply (2026-11-24-07). GUI elevation refines 2026-11-24-02 in 2026-11-24-08.
+- How to try M4-A: launch the GUI and accept or decline its elevation prompt; verify the ready fixed-drive list and select two drives; scan and check sequential progress, then cancel a later scan; inspect date/size and header details for snapshots; choose A and B; try Delete and cancel its confirmation, then confirm only for a snapshot you intend to remove. Compare, Top growers, and Special folders are placeholders.
 - Open questions: The symlink privilege-missing skip path remains untested on an unprivileged machine.
 
 ## Sessions (newest first)
+### 2026-11-24 · M4-A
+- Changed: Added throttled scan progress, a shared Core `ScanService` for GUI and headless scanning, ready-fixed-drive catalog, safe snapshot listing/deletion, and the M4-A WPF shell; added temp-only tests and recorded 2026-11-24-08.
+- Verified: `dotnet build DiskSnap.sln -c Release` succeeded. Tests and GUI checks were left to the user; no real-drive scan was performed. AC12 remains unchecked.
+- Risks / open: User verification is pending; M4-B comparison work has not started.
+
 ### 2026-11-24 · M3 follow-up
 - Changed: Updated R5, R17 and R18; recorded 2026-11-24-06 and 2026-11-24-07. Added cloud-directory safeguards, qualifying child attribution, observed-file metadata and candidates, root visibility control, and regression fixtures.
 - Verified: `dotnet build DiskSnap.sln -c Release` succeeded with 0 warnings and 0 errors. Tests were not run at the user's request; no real-drive scans were performed.

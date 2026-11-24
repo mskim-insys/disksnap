@@ -1,12 +1,91 @@
 ﻿<Window x:Class="DiskSnap.App.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
-        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
-        xmlns:local="clr-namespace:DiskSnap.App"
-        mc:Ignorable="d"
-        Title="MainWindow" Height="450" Width="800">
-    <Grid>
+        Title="DiskSnap" Height="760" Width="1180" MinHeight="560" MinWidth="900">
+    <Grid Margin="12">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="350" />
+            <ColumnDefinition Width="*" />
+        </Grid.ColumnDefinitions>
 
+        <Border Grid.Row="0" Grid.Column="0" Margin="0,0,12,10" Padding="12" BorderBrush="#FFD0D0D0" BorderThickness="1" CornerRadius="4">
+            <ScrollViewer VerticalScrollBarVisibility="Auto">
+                <StackPanel>
+                    <TextBlock Text="Drives and snapshots" FontSize="18" FontWeight="SemiBold" Margin="0,0,0,10" />
+                    <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
+                        <Button Content="Scan selected" Command="{Binding ScanCommand}" Padding="12,5" Margin="0,0,8,0" />
+                        <Button Content="Cancel" Command="{Binding CancelCommand}" Padding="12,5" />
+                    </StackPanel>
+                    <ProgressBar Height="5" IsIndeterminate="{Binding IsScanning}" Margin="0,0,0,6" />
+                    <TextBlock Text="{Binding CurrentPath}" TextTrimming="CharacterEllipsis" ToolTip="{Binding CurrentPath}" Margin="0,0,0,4" />
+                    <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
+                        <TextBlock Text="Items scanned: " />
+                        <TextBlock Text="{Binding ItemsScanned, StringFormat={}{0:N0}}" Margin="0,0,12,0" />
+                        <TextBlock Text="Skipped: " />
+                        <TextBlock Text="{Binding SkippedCount, StringFormat={}{0:N0}}" />
+                    </StackPanel>
+                    <TextBlock Text="{Binding SelectionA}" TextTrimming="CharacterEllipsis" ToolTip="{Binding SelectionA}" />
+                    <TextBlock Text="{Binding SelectionB}" TextTrimming="CharacterEllipsis" ToolTip="{Binding SelectionB}" Margin="0,0,0,10" />
+                    <ItemsControl ItemsSource="{Binding Drives}">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <StackPanel Margin="0,0,0,10">
+                                    <CheckBox Content="{Binding Name}" IsChecked="{Binding IsSelected, Mode=TwoWay}" FontWeight="SemiBold" FontSize="15" Margin="0,0,0,4" />
+                                    <ItemsControl ItemsSource="{Binding Snapshots}">
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate>
+                                                <Border BorderBrush="#FFE5E5E5" BorderThickness="1" Padding="5" Margin="12,2,0,2" ToolTip="{Binding Summary}">
+                                                    <Grid>
+                                                        <Grid.ColumnDefinitions>
+                                                            <ColumnDefinition Width="*" />
+                                                            <ColumnDefinition Width="Auto" />
+                                                            <ColumnDefinition Width="Auto" />
+                                                            <ColumnDefinition Width="Auto" />
+                                                        </Grid.ColumnDefinitions>
+                                                        <StackPanel Grid.Column="0" VerticalAlignment="Center">
+                                                            <TextBlock Text="{Binding DateLabel}" />
+                                                            <TextBlock Text="{Binding SizeLabel}" FontSize="11" Foreground="#FF606060" />
+                                                        </StackPanel>
+                                                        <Button Grid.Column="1" Content="A" ToolTip="Choose as snapshot A" Padding="6,2" Margin="3,0" Command="{Binding DataContext.SelectACommand, RelativeSource={RelativeSource AncestorType={x:Type Window}}}" CommandParameter="{Binding}" />
+                                                        <Button Grid.Column="2" Content="B" ToolTip="Choose as snapshot B" Padding="6,2" Margin="3,0" Command="{Binding DataContext.SelectBCommand, RelativeSource={RelativeSource AncestorType={x:Type Window}}}" CommandParameter="{Binding}" />
+                                                        <Button Grid.Column="3" Content="Delete" Padding="6,2" Margin="3,0" Command="{Binding DataContext.DeleteSnapshotCommand, RelativeSource={RelativeSource AncestorType={x:Type Window}}}" CommandParameter="{Binding}" />
+                                                    </Grid>
+                                                </Border>
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+                                </StackPanel>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </StackPanel>
+            </ScrollViewer>
+        </Border>
+
+        <TabControl Grid.Row="0" Grid.Column="1" Margin="0,0,0,10">
+            <TabItem Header="Compare">
+                <Grid>
+                    <TextBlock Text="Next milestone: M4-B — comparison tree." HorizontalAlignment="Center" VerticalAlignment="Center" FontSize="18" Foreground="#FF606060" />
+                </Grid>
+            </TabItem>
+            <TabItem Header="Top growers">
+                <Grid>
+                    <TextBlock Text="Next milestone: M4-B — top growers." HorizontalAlignment="Center" VerticalAlignment="Center" FontSize="18" Foreground="#FF606060" />
+                </Grid>
+            </TabItem>
+            <TabItem Header="Special folders">
+                <Grid>
+                    <TextBlock Text="Next milestone: M4-B — special folders." HorizontalAlignment="Center" VerticalAlignment="Center" FontSize="18" Foreground="#FF606060" />
+                </Grid>
+            </TabItem>
+        </TabControl>
+
+        <Border Grid.Row="1" Grid.ColumnSpan="2" Padding="8" Background="#FFF3F3F3" BorderBrush="#FFD0D0D0" BorderThickness="1" CornerRadius="3">
+            <TextBlock Text="{Binding StatusMessage}" TextWrapping="Wrap" />
+        </Border>
     </Grid>
 </Window>

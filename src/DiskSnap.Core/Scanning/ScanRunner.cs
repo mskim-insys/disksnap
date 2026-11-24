@@ -1,17 +1,19 @@
-using DiskSnap.Core.Snapshots;
 using DiskSnap.Core.Storage;
 
 namespace DiskSnap.Core.Scanning;
 
 public sealed class ScanRunner
 {
-    private readonly SnapshotStore _store;
-    private readonly Func<string, ScannerOptions, CancellationToken, Task<Snapshot>> _scan;
+    private readonly ScanService _service;
 
-    public ScanRunner(SnapshotStore store, Func<string, ScannerOptions, CancellationToken, Task<Snapshot>>? scan = null)
+    public ScanRunner(
+        SnapshotStore store,
+        Func<string, ScannerOptions, CancellationToken, Task<DiskSnap.Core.Snapshots.Snapshot>>? scan = null)
     {
-        _store = store ?? throw new ArgumentNullException(nameof(store));
-        _scan = scan ?? ((drive, options, token) => new DiskScanner().ScanAsync(drive, options, token));
+        ArgumentNullException.ThrowIfNull(store);
+        _service = new ScanService(store, scan is null
+            ? null
+            : (drive, options, token, _) => scan(drive, options, token));
     }
 
     public async Task<int> RunAsync(
@@ -30,55 +32,30 @@ public sealed class ScanRunner
             return 1;
         }
 
-        var settings = await _store.LoadSettingsAsync(cancellationToken).ConfigureAwait(false);
-        var rules = await _store.LoadRulesAsync(cancellationToken).ConfigureAwait(false);
-        var options = new ScannerOptions
-        {
-            DirectoryThreshold = settings.DirectoryThreshold,
-            FileThreshold = settings.FileThreshold,
-            Rules = rules
-        };
-        var saved = 0;
-        var failed = 0;
-        foreach (var requestedDrive in drives)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            try
+        var result = await _service.RunAsync(
+            drives,
+            update =>
             {
-                var drive = SnapshotStore.NormalizeDrive(requestedDrive);
-                if (!quiet)
+                if (update.Started && !quiet)
                 {
-                    await output.WriteLineAsync($"Scanning {drive}...").ConfigureAwait(false);
+                    output.WriteLine($"Scanning {update.Drive}...");
                 }
-
-                var snapshot = await _scan(drive, options, cancellationToken).ConfigureAwait(false);
-                if (!string.Equals(SnapshotStore.NormalizeDrive(snapshot.Header.Drive), drive, StringComparison.Ordinal))
+                else if (update.Completed && update.SnapshotPath is not null && !quiet)
                 {
-                    throw new InvalidDataException("The scanned snapshot belongs to a different drive.");
+                    output.WriteLine($"Saved {update.SnapshotPath}");
                 }
-
-                var path = await _store.WriteAsync(snapshot, settings.MaxSnapshots, cancellationToken, error).ConfigureAwait(false);
-                saved++;
-                if (!quiet)
+                else if (update.Completed && update.Error is not null)
                 {
-                    await output.WriteLineAsync($"Saved {path}").ConfigureAwait(false);
+                    error.WriteLine($"Scan of '{update.RequestedDrive}' failed: {update.Error}");
                 }
-            }
-            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-            {
-                throw;
-            }
-            catch (Exception exception)
-            {
-                failed++;
-                await error.WriteLineAsync($"Scan of '{requestedDrive}' failed: {exception.Message}").ConfigureAwait(false);
-            }
-        }
+            },
+            cancellationToken,
+            error).ConfigureAwait(false);
 
         if (!quiet)
         {
-            await output.WriteLineAsync($"Done: {saved} saved, {failed} failed").ConfigureAwait(false);
+            await output.WriteLineAsync($"Done: {result.SavedCount} saved, {result.FailedCount} failed").ConfigureAwait(false);
         }
-        return failed > 0 ? 1 : 0;
+        return result.FailedCount > 0 ? 1 : 0;
     }
 }

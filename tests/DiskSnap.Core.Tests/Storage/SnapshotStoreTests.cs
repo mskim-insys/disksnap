@@ -181,7 +181,9 @@ public sealed class SnapshotStoreTests
         Directory.CreateSymbolicLink(link, outside.Path);
         try
         {
-            await Assert.ThrowsAsync<IOException>(() => new SnapshotStore(fixture.Path).WriteAsync(Snapshot("C:", 1), 1));
+            var store = new SnapshotStore(fixture.Path);
+            await Assert.ThrowsAsync<IOException>(() => store.WriteAsync(Snapshot("C:", 1), 1));
+            await Assert.ThrowsAsync<IOException>(() => store.DeleteSnapshotAsync(Path.Combine(link, Path.GetFileName(sentinel))));
             Assert.Equal("keep", await File.ReadAllTextAsync(sentinel));
             Assert.Single(Directory.GetFiles(outside.Path));
         }
@@ -189,6 +191,54 @@ public sealed class SnapshotStoreTests
         {
             Directory.Delete(link);
         }
+    }
+
+    [Fact]
+    public async Task ListsSnapshotsWithHeaderSummaryAndWarnsForUnreadableFiles()
+    {
+        using var fixture = new TempDirectory();
+        var store = new SnapshotStore(fixture.Path);
+        var older = await store.WriteAsync(Snapshot("C:", 1), 10);
+        var newer = await store.WriteAsync(Snapshot("C:", 2), 10);
+        var unreadable = Path.Combine(Path.GetDirectoryName(older)!, "20200101-000001.jsonl.gz");
+        await File.WriteAllTextAsync(unreadable, "not gzip");
+        using var warnings = new StringWriter();
+
+        var snapshots = await store.ListSnapshotsAsync("c:\\", warnings);
+
+        Assert.Equal(new[] { newer, older }, snapshots.Select(snapshot => snapshot.Path));
+        Assert.Equal(FileInfoLength(newer), snapshots[0].FileSize);
+        Assert.Equal(TimeSpan.Zero, snapshots[0].Utc.Offset);
+        Assert.Equal("C:", snapshots[0].Header.Drive);
+        Assert.Equal("1", snapshots[0].Header.VolumeSerial);
+        Assert.Equal("NTFS", snapshots[0].Header.FileSystem);
+        Assert.Equal(1, snapshots[0].Header.VolumeTotal);
+        Assert.Equal(0, snapshots[0].Header.VolumeFree);
+        Assert.Equal(0, snapshots[0].Header.ScanSeconds);
+        Assert.Equal(0, snapshots[0].Header.SkippedCount);
+        await Assert.ThrowsAsync<InvalidDataException>(() => store.DeleteSnapshotAsync(unreadable));
+        Assert.True(File.Exists(unreadable));
+        Assert.Contains(unreadable, warnings.ToString());
+        Assert.Contains("Warning", warnings.ToString());
+    }
+
+    [Fact]
+    public async Task DeleteSnapshotRemovesOnlyAValidSnapshotInsideItsStore()
+    {
+        using var fixture = new TempDirectory();
+        using var outside = new TempDirectory();
+        var store = new SnapshotStore(fixture.Path);
+        var target = await store.WriteAsync(Snapshot("C:", 1), 10);
+        var otherDrive = await store.WriteAsync(Snapshot("D:", 1), 10);
+        var outsideFile = Path.Combine(outside.Path, "20260101-000000.jsonl.gz");
+        await File.WriteAllTextAsync(outsideFile, "keep");
+
+        await store.DeleteSnapshotAsync(target);
+
+        Assert.False(File.Exists(target));
+        Assert.True(File.Exists(otherDrive));
+        await Assert.ThrowsAsync<IOException>(() => store.DeleteSnapshotAsync(outsideFile));
+        Assert.Equal("keep", await File.ReadAllTextAsync(outsideFile));
     }
 
     [Fact]
@@ -331,6 +381,8 @@ public sealed class SnapshotStoreTests
         Assert.Equal(1, await runner.RunAsync([], true, output, error));
         Assert.Equal(1, await runner.RunAsync(["..\\outside"], true, output, error));
     }
+
+    private static long FileInfoLength(string path) => new FileInfo(path).Length;
 
     private static Snapshot Snapshot(string drive, int second, IReadOnlyList<SnapshotNode>? nodes = null) => new()
     {

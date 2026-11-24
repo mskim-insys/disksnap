@@ -25,6 +25,10 @@ public sealed class DiskScanner
     private string _volumeRoot = string.Empty;
     private string _fileSystem = string.Empty;
     private int _skippedCount;
+    private IProgress<ScanProgress>? _progress;
+    private long _scannedItems;
+    private long _lastProgressTimestamp;
+    private string _lastScannedPath = string.Empty;
 
     public DiskScanner() : this(WindowsDirectoryEnumerator.Enumerate)
     {
@@ -38,14 +42,16 @@ public sealed class DiskScanner
     public Task<Snapshot> ScanAsync(
         string rootPath,
         ScannerOptions? options = null,
-        CancellationToken cancellationToken = default) =>
-        ScanCoreAsync(rootPath, options, cancellationToken, allowSubdirectory: false);
+        CancellationToken cancellationToken = default,
+        IProgress<ScanProgress>? progress = null) =>
+        ScanCoreAsync(rootPath, options, cancellationToken, progress, allowSubdirectory: false);
 
     internal Task<Snapshot> ScanAsyncForTests(
         string rootPath,
         ScannerOptions? options = null,
-        CancellationToken cancellationToken = default) =>
-        ScanCoreAsync(rootPath, options, cancellationToken, allowSubdirectory: true);
+        CancellationToken cancellationToken = default,
+        IProgress<ScanProgress>? progress = null) =>
+        ScanCoreAsync(rootPath, options, cancellationToken, progress, allowSubdirectory: true);
 
     internal static string NormalizeRootPath(string rootPath)
     {
@@ -62,6 +68,7 @@ public sealed class DiskScanner
         string rootPath,
         ScannerOptions? options,
         CancellationToken cancellationToken,
+        IProgress<ScanProgress>? progress,
         bool allowSubdirectory)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(rootPath);
@@ -90,7 +97,7 @@ public sealed class DiskScanner
         try
         {
             return await Task.Run(
-                () => Scan(fullRootPath, scanOptions, cancellationToken),
+                () => Scan(fullRootPath, scanOptions, cancellationToken, progress),
                 cancellationToken).ConfigureAwait(false);
         }
         finally
@@ -99,13 +106,21 @@ public sealed class DiskScanner
         }
     }
 
-    private Snapshot Scan(string rootPath, ScannerOptions options, CancellationToken cancellationToken)
+    private Snapshot Scan(
+        string rootPath,
+        ScannerOptions options,
+        CancellationToken cancellationToken,
+        IProgress<ScanProgress>? progress)
     {
         _options = options;
         _compiledRules = ScanRules.Compile(options.Rules);
         _countedHardLinks.Clear();
         _skippedSample.Clear();
         _skippedCount = 0;
+        _progress = progress;
+        _scannedItems = 0;
+        _lastScannedPath = rootPath;
+        _lastProgressTimestamp = Stopwatch.GetTimestamp();
         cancellationToken.ThrowIfCancellationRequested();
 
         var volumeRoot = Path.GetPathRoot(rootPath)
@@ -119,6 +134,7 @@ public sealed class DiskScanner
         var nodes = new List<SnapshotNode>();
         EmitDirectory(root, nodes, isRoot: true);
         stopwatch.Stop();
+        ReportProgress(_lastScannedPath, force: true);
         return new Snapshot
         {
             Header = new SnapshotHeader
@@ -169,6 +185,7 @@ public sealed class DiskScanner
         catch (Exception exception) when (IsSkippable(exception, isScanRoot))
         {
             RecordSkipped(fullPath);
+            ReportProgress(fullPath);
             return directory;
         }
 
@@ -184,6 +201,12 @@ public sealed class DiskScanner
                 ? entry.Name
                 : relativePath + "\\" + entry.Name;
             var childFullPath = Path.Combine(fullPath, entry.Name);
+            if (_progress is not null)
+            {
+                _scannedItems++;
+                _lastScannedPath = childFullPath;
+                ReportProgress(childFullPath);
+            }
             var rule = applyRules ? ScanRules.FindMatch(_compiledRules, childRelativePath) : null;
             var isDirectory = (entry.Attributes & FileAttributeDirectory) != 0;
             var isReparsePoint = (entry.Attributes & FileAttributeReparsePoint) != 0;
@@ -425,6 +448,22 @@ public sealed class DiskScanner
         {
             _skippedSample.Add(path);
         }
+    }
+
+    private void ReportProgress(string currentPath, bool force = false)
+    {
+        if (_progress is null || (!force && _scannedItems % 256 != 0))
+        {
+            return;
+        }
+
+        if (!force && _scannedItems % 2048 != 0 && Stopwatch.GetElapsedTime(_lastProgressTimestamp) < TimeSpan.FromMilliseconds(100))
+        {
+            return;
+        }
+
+        _lastProgressTimestamp = Stopwatch.GetTimestamp();
+        _progress.Report(new ScanProgress(currentPath, _scannedItems, _skippedCount));
     }
 
     private static VolumeMetadata GetVolumeInformation(string volumeRoot)

@@ -8,8 +8,8 @@ A personal Windows tool that records disk-usage snapshots of one or more drives 
 ## Requirements
 
 ### Scanning
-- R1 Drive selection: list local fixed drives. The user selects one or more. Each drive produces its own snapshot file.
-- R2 Admin: the GUI manifest requires administrator. The headless mode warns and continues if not elevated.
+- R1 Drive selection: list ready local fixed drives. External USB hard disks reported by Windows as Fixed are included. The user selects one or more. Each drive produces its own snapshot file.
+- R2 Admin: when the GUI starts without arguments and is not elevated, it relaunches itself with the `runas` verb and exits. If the user declines, it continues unelevated with a visible warning. Headless mode remains asInvoker, warns, and continues if not elevated.
 - R3 Access errors: any directory or file that cannot be read (access denied, sharing violation, path too long, vanished mid-scan) is skipped. The scan never aborts on one. The snapshot header stores the skipped count and up to 200 sample paths.
 - R4 Links: never descend into a directory symlink, junction, or mount point. Record it as a link entry with size 0, except that R5 takes precedence for a directory with cloud attributes. Files that are symlinks count 0. Other reparse tags (for example data deduplication) are not links: count their allocated size normally.
 - R5 Cloud placeholders: files with the offline or recall-on-data-access attributes occupy no local space. Count them as 0 bytes and flag them. Never enumerate directories with OFFLINE (0x1000), RECALL_ON_OPEN (0x40000), or RECALL_ON_DATA_ACCESS (0x400000), including when measuring an exclusion. Record each visible such directory as a collapsed entry with size 0, file count 0, and the `cloud` flag.

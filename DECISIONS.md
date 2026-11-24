@@ -95,3 +95,9 @@
 - Decision: distinguish newly observed and no-longer-observed unknown files from exact new and removed entries. Permit a newly observed file meeting R18's size and attribution tests as an unknown-delta candidate, and expose its size minus the missing-side file threshold only as a conditional folding bound. A qualifying child can replace its parent only when it also meets `minDelta`. Omit the root by default, with an opt-in to include it.
 - Alternatives considered and rejected: claiming an unconditional lower bound or an exact delta would misrepresent exclusions and skipped paths; suppressing a parent for a child below `minDelta` can hide the entire culprit.
 - Impact / follow-ups: consumers must identify the folding assumption when displaying an "at least" value. Existing snapshots and headers remain unchanged.
+
+## 2026-11-24-08 GUI elevation relaunch preserves headless asInvoker
+- Context: 2026-11-24-02 chose one windowless-capable WPF executable so headless scans would not trigger UAC, while R2 requires the GUI to run elevated.
+- Decision: on a no-argument, non-elevated launch, restart the same executable with the `runas` verb and an internal GUI-only argument, then exit. If the UAC prompt is declined, continue in the original process with a visible warning; keep the executable manifest asInvoker so `--scan` never prompts.
+- Alternatives considered and rejected: an executable-wide requireAdministrator manifest would also elevate headless scans; a separate GUI executable would violate the single-executable entry-point decision.
+- Impact / follow-ups: the GUI relaunches once into its GUI dispatcher, while `--scan` keeps its existing warning and exit-code behavior. This refines 2026-11-24-02 without changing the snapshot format or headless contract.

@@ -12,7 +12,7 @@ Personal Windows disk-usage snapshot tool: scan drives, store compressed snapsho
 These become valid once M0 creates the solution; correct them here if they drift.
 - Build: `dotnet build DiskSnap.sln -c Release`
 - Test: `dotnet test DiskSnap.sln` (use an elevated terminal: some tests need admin or symlink privilege)
-- Run GUI: `dotnet run --project src/DiskSnap.App` (GUI not yet implemented; elevation remains future work, see 2026-11-24-02)
+- Run GUI: `dotnet run --project src/DiskSnap.App` (GUI prompts to restart elevated; see 2026-11-24-08)
 - Run headless scan: `DiskSnap.exe --scan C: D:`
 
 ## Boundaries
