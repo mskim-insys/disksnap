@@ -101,3 +101,15 @@
 - Decision: on a no-argument, non-elevated launch, restart the same executable with the `runas` verb and an internal GUI-only argument, then exit. If the UAC prompt is declined, continue in the original process with a visible warning; keep the executable manifest asInvoker so `--scan` never prompts.
 - Alternatives considered and rejected: an executable-wide requireAdministrator manifest would also elevate headless scans; a separate GUI executable would violate the single-executable entry-point decision.
 - Impact / follow-ups: the GUI relaunches once into its GUI dispatcher, while `--scan` keeps its existing warning and exit-code behavior. This refines 2026-11-24-02 without changing the snapshot format or headless contract.
+
+## 2026-11-24-09 Comparison tree uses a flattened indexed virtualized list
+- Context: the GUI must expose a large comparison tree without a plain TreeView or per-item collection notifications.
+- Decision: display a flattened visible preorder in a virtualized WPF ListView. Core keeps the UI-free rows in an indexed implicit treap, supporting range insertion/removal and index lookup without shifting the remaining visible suffix; each range operation sends one Reset collection notification.
+- Alternatives considered and rejected: a plain TreeView does not satisfy the requested flat virtualized surface; a List-backed range collection shifts a large suffix on every insertion and repeated expansion can become quadratic; per-item notifications overwhelm the UI.
+- Impact / follow-ups: expansion and collapse create/remove only visible descendants and operate iteratively. Filtering or expanding to a path rebuilds the visible range once; the backing collection must remain indexable for WPF virtualization.
+
+## 2026-11-24-10 Growth-only filter retains changed paths and ancestors
+- Context: growth filtering must make relevant descendants reachable without scanning subtrees repeatedly during UI interactions.
+- Decision: a row qualifies when its exact delta is positive or it is a newly observed file; a row is included when it qualifies or has any qualifying descendant. Precompute this closure iteratively in O(n), preserving ancestors as navigation rows while excluding shrink-only, removed-only, and unchanged branches.
+- Alternatives considered and rejected: hiding non-growing ancestors strands changed descendants; rechecking descendants for each row or filter toggle can become quadratic.
+- Impact / follow-ups: threshold-unknown new files are included by observation status, not by an invented delta. Exact removed entries and shrink-only rows remain visible when the filter is off.

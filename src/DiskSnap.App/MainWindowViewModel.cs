@@ -4,13 +4,13 @@ using System.Globalization;
 using System.IO;
 using System.Runtime.CompilerServices;
 using System.Windows.Input;
-using System.Windows.Threading;
+using DiskSnap.Core.Formatting;
 using DiskSnap.Core.Scanning;
 using DiskSnap.Core.Storage;
 
 namespace DiskSnap.App;
 
-public sealed class MainWindowViewModel : BindableObject
+public sealed partial class MainWindowViewModel : BindableObject
 {
     private readonly DriveCatalog _driveCatalog;
     private readonly ScanService _scanService;
@@ -43,6 +43,7 @@ public sealed class MainWindowViewModel : BindableObject
         SelectACommand = new RelayCommand(SelectSnapshotA);
         SelectBCommand = new RelayCommand(SelectSnapshotB);
         DeleteSnapshotCommand = new RelayCommand(RequestSnapshotDeletion, _ => !IsScanning);
+        InitializeComparisonCommands();
     }
 
     public ObservableCollection<DriveItemViewModel> Drives { get; } = [];
@@ -63,6 +64,7 @@ public sealed class MainWindowViewModel : BindableObject
                 ((AsyncRelayCommand)ScanCommand).NotifyCanExecuteChanged();
                 ((RelayCommand)CancelCommand).NotifyCanExecuteChanged();
                 ((RelayCommand)DeleteSnapshotCommand).NotifyCanExecuteChanged();
+                NotifyComparisonCommandState();
             }
         }
     }
@@ -167,6 +169,12 @@ public sealed class MainWindowViewModel : BindableObject
                 SelectedSnapshotB = null;
                 SelectionB = "B: not selected";
             }
+            if (SelectedSnapshotA is null || SelectedSnapshotB is null)
+            {
+                CancelComparison();
+                SetComparison(null);
+                NotifyComparisonCommandState();
+            }
             var drive = Drives.FirstOrDefault(item => string.Equals(item.Name, row.Snapshot.Header.Drive, StringComparison.OrdinalIgnoreCase));
             var warning = drive is null ? null : await RefreshDriveAsync(drive).ConfigureAwait(true);
             StatusMessage = $"Deleted snapshot {row.DateLabel}." +
@@ -195,8 +203,7 @@ public sealed class MainWindowViewModel : BindableObject
         ItemsScanned = 0;
         SkippedCount = 0;
         StatusMessage = "Scanning selected drives...";
-        var dispatcher = Dispatcher.CurrentDispatcher;
-        var progress = new DispatcherProgress<ScanServiceUpdate>(dispatcher, HandleScanUpdate);
+        IProgress<ScanServiceUpdate> progress = new Progress<ScanServiceUpdate>(update => _ = HandleScanUpdateAsync(update));
 
         try
         {
@@ -238,7 +245,7 @@ public sealed class MainWindowViewModel : BindableObject
         }
     }
 
-    private void HandleScanUpdate(ScanServiceUpdate update)
+    private async Task HandleScanUpdateAsync(ScanServiceUpdate update)
     {
         if (update.Started)
         {
@@ -268,7 +275,7 @@ public sealed class MainWindowViewModel : BindableObject
             {
                 try
                 {
-                    var warning = RefreshDriveOnDispatcher(drive);
+                    var warning = await RefreshDriveAsync(drive).ConfigureAwait(true);
                     if (warning is not null)
                     {
                         _snapshotWarnings.Add(warning);
@@ -287,14 +294,7 @@ public sealed class MainWindowViewModel : BindableObject
         using var warnings = new StringWriter(CultureInfo.CurrentCulture);
         var snapshots = await _snapshotStore.ListSnapshotsAsync(drive.Name, warnings).ConfigureAwait(true);
         drive.ReplaceSnapshots(snapshots);
-        return warnings.GetStringBuilder().Length > 0 ? warnings.ToString().TrimEnd() : null;
-    }
-
-    private string? RefreshDriveOnDispatcher(DriveItemViewModel drive)
-    {
-        using var warnings = new StringWriter(CultureInfo.CurrentCulture);
-        var snapshots = _snapshotStore.ListSnapshotsAsync(drive.Name, warnings).GetAwaiter().GetResult();
-        drive.ReplaceSnapshots(snapshots);
+        EnsureDefaultSelection(drive);
         return warnings.GetStringBuilder().Length > 0 ? warnings.ToString().TrimEnd() : null;
     }
 
@@ -302,8 +302,7 @@ public sealed class MainWindowViewModel : BindableObject
     {
         if (parameter is SnapshotRowViewModel row)
         {
-            SelectedSnapshotA = row.Snapshot;
-            SelectionA = $"A: {row.Snapshot.Header.Drive} - {row.DateLabel}";
+            SelectComparisonSnapshot(row.Snapshot, selectAsOlder: true);
         }
     }
 
@@ -311,8 +310,7 @@ public sealed class MainWindowViewModel : BindableObject
     {
         if (parameter is SnapshotRowViewModel row)
         {
-            SelectedSnapshotB = row.Snapshot;
-            SelectionB = $"B: {row.Snapshot.Header.Drive} - {row.DateLabel}";
+            SelectComparisonSnapshot(row.Snapshot, selectAsOlder: false);
         }
     }
 
@@ -321,21 +319,6 @@ public sealed class MainWindowViewModel : BindableObject
         if (parameter is SnapshotRowViewModel row)
         {
             DeleteConfirmationRequested?.Invoke(row);
-        }
-    }
-
-    private sealed class DispatcherProgress<T>(Dispatcher dispatcher, Action<T> callback) : IProgress<T>
-    {
-        public void Report(T value)
-        {
-            if (dispatcher.CheckAccess())
-            {
-                callback(value);
-            }
-            else
-            {
-                dispatcher.Invoke(() => callback(value));
-            }
         }
     }
 }
@@ -363,14 +346,24 @@ public sealed class DriveItemViewModel(string name) : BindableObject
     }
 }
 
-public sealed class SnapshotRowViewModel(SnapshotInfo snapshot)
+public sealed class SnapshotRowViewModel
 {
-    public SnapshotInfo Snapshot { get; } = snapshot;
-    public string DateLabel { get; } = snapshot.Utc.ToLocalTime().ToString("g", CultureInfo.CurrentCulture);
-    public string SizeLabel { get; } = $"{snapshot.FileSize:N0} bytes";
-    public string Summary => $"{snapshot.Header.FileSystem}; volume {snapshot.Header.VolumeSerial}; " +
-        $"total {snapshot.Header.VolumeTotal:N0}; free {snapshot.Header.VolumeFree:N0}; " +
-        $"scan {snapshot.Header.ScanSeconds:F1}s; skipped {snapshot.Header.SkippedCount:N0}";
+    public SnapshotRowViewModel(SnapshotInfo snapshot)
+    {
+        Snapshot = snapshot ?? throw new ArgumentNullException(nameof(snapshot));
+        DateLabel = snapshot.Utc.ToLocalTime().ToString("g", CultureInfo.CurrentCulture);
+        SizeLabel = SizeFormatter.Format(snapshot.FileSize);
+        SizeTooltip = SizeFormatter.FormatExactBytes(snapshot.FileSize);
+        Summary = $"{snapshot.Header.FileSystem}; volume {snapshot.Header.VolumeSerial}; " +
+            $"total {SizeFormatter.Format(snapshot.Header.VolumeTotal)}; free {SizeFormatter.Format(snapshot.Header.VolumeFree)}; " +
+            $"scan {snapshot.Header.ScanSeconds:F1}s; skipped {snapshot.Header.SkippedCount:N0}";
+    }
+
+    public SnapshotInfo Snapshot { get; }
+    public string DateLabel { get; }
+    public string SizeLabel { get; }
+    public string SizeTooltip { get; }
+    public string Summary { get; }
 }
 
 public abstract class BindableObject : INotifyPropertyChanged

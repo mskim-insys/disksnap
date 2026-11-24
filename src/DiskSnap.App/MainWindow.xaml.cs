@@ -1,4 +1,6 @@
 ﻿using System.Windows;
+using System.Windows.Controls;
+using System.Windows.Input;
 using DiskSnap.Core.Scanning;
 using DiskSnap.Core.Storage;
 
@@ -19,6 +21,7 @@ public partial class MainWindow : Window
             ((App)Application.Current).StartupWarning);
         DataContext = _viewModel;
         _viewModel.DeleteConfirmationRequested += ConfirmSnapshotDeletion;
+        _viewModel.JumpRequested += row => FindComparisonList()?.ScrollIntoView(row);
         Loaded += MainWindowLoaded;
     }
 
@@ -27,6 +30,21 @@ public partial class MainWindow : Window
         Loaded -= MainWindowLoaded;
         await _viewModel.InitializeAsync();
     }
+
+    private void ComparisonListPreviewMouseRightButtonDown(object sender, MouseButtonEventArgs e)
+    {
+        if (sender is ListView list &&
+            ItemsControl.ContainerFromElement(list, e.OriginalSource as DependencyObject) is ListViewItem item)
+        {
+            item.IsSelected = true;
+            item.Focus();
+        }
+    }
+
+    private ListView? FindComparisonList() =>
+        MainTabs.Items.OfType<TabItem>().FirstOrDefault()?.Content is Grid compareGrid
+            ? compareGrid.Children.OfType<ListView>().FirstOrDefault()
+            : null;
 
     private async void ConfirmSnapshotDeletion(SnapshotRowViewModel row)
     {

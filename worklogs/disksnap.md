@@ -3,16 +3,21 @@ Spec: specs/disksnap.md
 Status: in progress
 
 ## Handover
-- Current milestone: M4-A (GUI shell, scan, and snapshot list); M4-B remains. Milestone criteria are in the [spec](../specs/disksnap.md#milestones).
-- Done and verified: M4-A implementation builds with `dotnet build DiskSnap.sln -c Release`; temp-only regression tests were added but not run.
-- Not done / partial: User test run and manual GUI check are pending. Do not mark AC12 complete; the comparison tabs remain placeholders.
-- First step next session: Review the user's M4-A test and GUI-check results before starting M4-B.
+- Current milestone: M4-B (Compare tab); milestone criteria are in the [spec](../specs/disksnap.md#milestones).
+- Done and verified: M4-B and the requested M4-A cleanup build with `dotnet build DiskSnap.sln -c Release`; the Core comparison tree and formatter tests are added but not run.
+- Not done / partial: User test run and manual GUI check are pending. AC12 remains unchecked because it covers all of M4; Top growers and Special folders remain M4-C placeholders.
+- First step next session: Review the user's M4-B test and GUI-check results before starting any M4-C work.
 - Read first: `README.md`, `specs/disksnap.md`, `DECISIONS.md`, this Handover.
-- Traps: Do not scan a real drive or access `%LOCALAPPDATA%\DiskSnap` in tests. Cloud directory contents may be omitted (2026-11-24-06); file change lower bounds assume folding and are not guaranteed when exclusions or skips apply (2026-11-24-07). GUI elevation refines 2026-11-24-02 in 2026-11-24-08.
-- How to try M4-A: launch the GUI and accept or decline its elevation prompt; verify the ready fixed-drive list and select two drives; scan and check sequential progress, then cancel a later scan; inspect date/size and header details for snapshots; choose A and B; try Delete and cancel its confirmation, then confirm only for a snapshot you intend to remove. Compare, Top growers, and Special folders are placeholders.
-- Open questions: The symlink privilege-missing skip path remains untested on an unprivileged machine.
+- Traps: Do not scan a real drive or access `%LOCALAPPDATA%\DiskSnap` in tests. Cloud directory contents may be omitted (2026-11-24-06); file change lower bounds assume folding and are not guaranteed when exclusions or skips apply (2026-11-24-07). GUI elevation refines 2026-11-24-02 in 2026-11-24-08. Compare selections must share a drive and volume serial.
+- How to try M4-B: launch the GUI with existing snapshots; confirm the newest pair is preselected and a comparison runs with a busy indicator; choose A/B in reverse order and check the swap status, then try incompatible snapshots and confirm an error is shown. Expand/collapse rows, toggle Growth only, and use Jump to biggest grower. Inspect presence wording, lower-bound and exact-byte tooltips, and guidance markers. Right-click a row to copy its path or open its item/nearest existing ancestor in Explorer. Top growers and Special folders remain M4-C placeholders. Run the tests as appropriate; set `DISKSNAP_BENCH=1` for the opt-in 500,000-node timing test.
+- Open questions: The user must run the tests and verify the WPF interactions; AC12 is intentionally not checked in this M4-B session.
 
 ## Sessions (newest first)
+### 2026-11-24 · M4-B
+- Changed: Added reusable binary size formatting, the iterative flattened comparison model and range-indexed virtualized Compare list, automatic same-drive/serial A/B selection and async compare, display-only guidance, and Explorer/clipboard actions. Replaced the synchronous refresh and Dispatcher.Invoke progress wrapper; recorded 2026-11-24-09 and -10.
+- Verified: `dotnet build DiskSnap.sln -c Release` succeeded. Tests and GUI checks were left to the user; no real-drive scan was performed. AC12 remains unchecked.
+- Risks / open: User-run tests and GUI verification are pending; Top growers and Special folders are M4-C work.
+
 ### 2026-11-24 · M4-A
 - Changed: Added throttled scan progress, a shared Core `ScanService` for GUI and headless scanning, ready-fixed-drive catalog, safe snapshot listing/deletion, and the M4-A WPF shell; added temp-only tests and recorded 2026-11-24-08.
 - Verified: `dotnet build DiskSnap.sln -c Release` succeeded. Tests and GUI checks were left to the user; no real-drive scan was performed. AC12 remains unchecked.
