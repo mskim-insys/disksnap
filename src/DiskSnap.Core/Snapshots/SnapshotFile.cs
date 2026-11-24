@@ -30,7 +30,15 @@ public static class SnapshotFile
             FileShare.None,
             bufferSize: 64 * 1024,
             FileOptions.Asynchronous);
-        await using var gzip = new GZipStream(file, CompressionLevel.Optimal, leaveOpen: true);
+        await WriteAsync(file, snapshot, cancellationToken).ConfigureAwait(false);
+    }
+
+    internal static async Task WriteAsync(
+        Stream destination,
+        Snapshot snapshot,
+        CancellationToken cancellationToken)
+    {
+        await using var gzip = new GZipStream(destination, CompressionLevel.Optimal, leaveOpen: true);
         await using var writer = new StreamWriter(gzip, Utf8WithoutBom, leaveOpen: true);
 
         await writer.WriteLineAsync(JsonSerializer.Serialize(snapshot.Header, JsonOptions).AsMemory(), cancellationToken);
@@ -57,14 +65,7 @@ public static class SnapshotFile
         await using var gzip = new GZipStream(file, CompressionMode.Decompress, leaveOpen: true);
         using var reader = new StreamReader(gzip, Utf8WithoutBom, detectEncodingFromByteOrderMarks: false);
 
-        var headerLine = await reader.ReadLineAsync(cancellationToken)
-            ?? throw new InvalidDataException("The snapshot does not contain a header.");
-        var header = JsonSerializer.Deserialize<SnapshotHeader>(headerLine, JsonOptions)
-            ?? throw new InvalidDataException("The snapshot header is empty.");
-        if (header.Type != "hdr")
-        {
-            throw new InvalidDataException("The first snapshot record is not a header.");
-        }
+        var header = await ReadHeaderAsync(reader, cancellationToken).ConfigureAwait(false);
 
         var nodes = new List<SnapshotNode>();
         string? line;
@@ -81,5 +82,26 @@ public static class SnapshotFile
             Header = header,
             Nodes = nodes
         };
+    }
+
+    internal static async Task<SnapshotHeader> ReadHeaderAsync(string path)
+    {
+        await using var file = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, 4096, FileOptions.Asynchronous);
+        await using var gzip = new GZipStream(file, CompressionMode.Decompress);
+        using var reader = new StreamReader(gzip, Utf8WithoutBom, detectEncodingFromByteOrderMarks: false);
+        return await ReadHeaderAsync(reader, CancellationToken.None).ConfigureAwait(false);
+    }
+
+    private static async Task<SnapshotHeader> ReadHeaderAsync(StreamReader reader, CancellationToken cancellationToken)
+    {
+        var headerLine = await reader.ReadLineAsync(cancellationToken).ConfigureAwait(false)
+            ?? throw new InvalidDataException("The snapshot does not contain a header.");
+        var header = JsonSerializer.Deserialize<SnapshotHeader>(headerLine, JsonOptions)
+            ?? throw new InvalidDataException("The snapshot header is empty.");
+        if (header.Type != "hdr")
+        {
+            throw new InvalidDataException("The first snapshot record is not a header.");
+        }
+        return header;
     }
 }

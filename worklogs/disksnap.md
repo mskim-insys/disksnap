@@ -3,28 +3,29 @@ Spec: specs/disksnap.md
 Status: in progress
 
 ## Handover
-- Current milestone: M1 follow-up; M2 has not started. Exit criteria remain in the [spec](../specs/disksnap.md#acceptance-criteria).
-- Done and verified: The user reported `dotnet test DiskSnap.sln -c Release` passing all 24 tests after the follow-up; details are in the session entry below.
-- First step next session: Review the M1 follow-up and user-provided benchmark results below; do not start M2 without a new request.
+- Current milestone: M2; exit criteria remain unchecked in the [spec](../specs/disksnap.md#acceptance-criteria).
+- Done and verified: M1 follow-up and M2 implementation build in Release; the earlier M1 suite passed as reported below.
+- Not done / partial: M2 runtime verification awaits the user's elevated test results; no acceptance criteria were checked this session.
+- First step next session: Review the user's elevated test results, resolve failures, and confirm the M2 criteria before considering M3.
 - Read first: `README.md`, `specs/disksnap.md`, `DECISIONS.md`, this Handover.
-- Traps: Do not scan a real drive or access `%LOCALAPPDATA%\DiskSnap`; tests and benchmark use temp directories only. Temp-subdirectory scans use an internal test-only overload. Benchmark results are single runs; peak working set covers the test process, including fixture setup.
-- Open questions: Decide how to handle cloud placeholder directories before the first real-drive scan (DECISIONS.md 2026-11-23-01); the symlink privilege-missing skip path has not been exercised on an unprivileged machine.
+- Traps: Do not scan a real drive or access `%LOCALAPPDATA%\DiskSnap` in tests. Tests use temp stores and injected scanners. GUI elevation remains future work (2026-11-24-02).
+- Open questions: Decide cloud placeholder directory handling before the first real-drive scan (2026-11-23-01); the symlink privilege-missing skip path remains untested on an unprivileged machine.
 
 ## Sessions (newest first)
-### 2026-11-23 · M1 follow-up
-- Changed: Recorded the user's benchmark output; no scanner changes in this session.
-- Verified: The user reported the opt-in benchmark passed once per version. For 100,000 temp files, scan elapsed time was 0.3330565 s before and 0.1770075 s after; process peak working set was 131,854,336 bytes before and 72,118,272 bytes after. Total benchmark test-run durations were 25.1 s and 30.0 s, respectively, including fixture creation and cleanup.
-- Risks / open: Single runs do not establish a stable speed ratio; peak working set is process-wide and may include setup rather than only scanning. Cloud placeholder directory enumeration still needs the user's decision before a real-drive scan.
+### 2026-11-24 · M2
+- Changed: Added the injectable snapshot store, atomic gzip writes, UTC-ordered per-drive retention, settings and rules loading, and a Core scan runner with a windowless executable entry point. Added temp-only regression fixtures.
+- Verified: `dotnet build DiskSnap.sln -c Release` succeeded; tests were not run at the user's request. No real-drive scans were performed.
+- Risks / open: [AC9 and AC11](../specs/disksnap.md#acceptance-criteria) await user verification; compressed size and full-drive timing remain unmeasured.
+
+### 2026-11-24 · M1 follow-up
+- Changed: Made every root enumeration exception fatal, made cancellation deterministic, corrected the milestone range, and recorded 2026-11-24-01. Committed separately as `828e4a9`.
+- Verified: `dotnet build DiskSnap.sln -c Release` succeeded; tests await the user.
+- Risks / open: No real-drive scan was performed.
 
 ### 2026-11-23 · M1 follow-up
-- Changed: Recorded the user's test and timing results; no scanner changes in this session.
-- Verified: The user reported 12/12 tests passing in 33.5 s before and 12/12 in 27.0 s for another run, then 24/24 passing in 30.8 s for the full suite after (`dotnet test DiskSnap.sln -c Release`). These are test-run durations, not scan-only elapsed time or peak working set; the 12-test and 24-test runs do not have the same test count.
-- Risks / open: Cloud placeholder directory enumeration still needs the user's decision before a real-drive scan.
-
-### 2026-11-23 · M1 follow-up
-- Changed: Added the opt-in `DISKSNAP_BENCH=1` 100,000-file benchmark in its own first commit (`f0269d5`); folded small-file data into directory totals; compiled and prefiltered rules per scan; enforced volume-root scans; adjusted unsupported-enumeration handling; added temp-only sparse, compression, long-path, cancellation, and regression fixtures.
-- Verified: `dotnet build DiskSnap.sln -c Release` succeeded. Tests and benchmark were not run per request; the user will run the elevated suite and record benchmark baseline/after measurements. Temp fixtures use the internal test-only subdirectory overload.
-- Risks / open: Cloud placeholder directory enumeration needs the user's decision before a real-drive scan; no real-drive scan was performed.
+- Changed: Added the opt-in `DISKSNAP_BENCH=1` 100,000-file benchmark (`f0269d5`); folded small-file data into directory totals, compiled and prefiltered rules, enforced volume-root scans, adjusted enumeration error handling, and added temp-only regression fixtures.
+- Verified: Release build succeeded. The user reported 12/12 tests in 33.5 s and 12/12 in 27.0 s before, then 24/24 in 30.8 s after. The opt-in benchmark passed once per version: scan elapsed 0.3330565 s before and 0.1770075 s after; process peak working set 131,854,336 and 72,118,272 bytes; total benchmark runs 25.1 s and 30.0 s including setup and cleanup.
+- Risks / open: Single benchmark runs do not establish a stable speed ratio; peak working set includes fixture setup. Cloud placeholder directory handling remains open (2026-11-23-01).
 
 ### 2026-11-23 · M1
 - Changed: Corrected the junction fixture command and cleanup; made the symlink privilege skip discoverable by xUnit.

@@ -59,3 +59,15 @@
 - Decision: any exception enumerating the scan root fails the scan. Unsupported API errors retain their drive and filesystem diagnostic; skippable inner-directory errors still count as skipped.
 - Alternatives considered and rejected: skipping root access or I/O errors would misrepresent a failed drive scan as success.
 - Impact / follow-ups: no snapshot or retention should follow a failed root enumeration.
+
+## 2026-11-24-02 Entry point: one windowless-capable WPF executable
+- Context: scheduled scans must run without a window and must warn rather than require elevation, while the future GUI needs elevation.
+- Decision: use a custom entry point in the WPF WinExe, named `DiskSnap.exe`, that dispatches `--scan` to Core without starting WPF. The executable runs as the invoking user for headless mode; GUI elevation remains to be implemented with the GUI.
+- Alternatives considered and rejected: a separate console executable would not provide the requested single executable; an executable-wide require-administrator manifest would prompt or fail instead of allowing an unelevated scheduled scan.
+- Impact / follow-ups: M4 must implement the GUI elevation requirement without forcing elevation on headless scans.
+
+## 2026-11-24-03 Snapshot naming collisions and retention ordering
+- Context: local filenames have only second precision and can collide, including during a daylight-saving transition; local filename order can differ from actual chronological order.
+- Decision: never overwrite an existing filename; report the collision as a failed write and do not run retention. Sort retention by the UTC header, with filename as a deterministic tie-breaker, and validate candidate headers before deleting.
+- Alternatives considered and rejected: overwriting would lose an existing snapshot; inventing a timestamp or suffix would violate the specified filename or misstate the scan time.
+- Impact / follow-ups: a scan completed in the same local second as an existing snapshot must be retried after that second; an invalid candidate header blocks retention and is reported.

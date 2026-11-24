@@ -64,9 +64,11 @@ public static class ScanRules
             FileShare.None,
             bufferSize: 16 * 1024,
             FileOptions.Asynchronous);
-        await JsonSerializer.SerializeAsync(stream, DefaultRuleList, JsonOptions, cancellationToken)
-            .ConfigureAwait(false);
+        await WriteDefaultsAsync(stream, cancellationToken).ConfigureAwait(false);
     }
+
+    internal static Task WriteDefaultsAsync(Stream stream, CancellationToken cancellationToken) =>
+        JsonSerializer.SerializeAsync(stream, DefaultRuleList, JsonOptions, cancellationToken);
 
     internal static void Validate(IReadOnlyList<ScanRule> rules)
     {

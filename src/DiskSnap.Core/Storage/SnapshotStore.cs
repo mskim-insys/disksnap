@@ -1,0 +1,216 @@
+using System.Globalization;
+using System.Text.Json;
+using DiskSnap.Core.Scanning;
+using DiskSnap.Core.Snapshots;
+
+namespace DiskSnap.Core.Storage;
+
+public sealed class SnapshotStore
+{
+    private static readonly JsonSerializerOptions SettingsJson = new() { WriteIndented = true };
+    private readonly string _baseDirectory;
+
+    public SnapshotStore(string? baseDirectory = null)
+    {
+        if (baseDirectory is null)
+        {
+            var localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+            if (string.IsNullOrWhiteSpace(localAppData))
+            {
+                throw new InvalidOperationException("The local application data directory is unavailable.");
+            }
+            baseDirectory = Path.Combine(localAppData, "DiskSnap");
+        }
+
+        ArgumentException.ThrowIfNullOrWhiteSpace(baseDirectory);
+        _baseDirectory = Path.GetFullPath(baseDirectory);
+    }
+
+    public async Task<DiskSnapSettings> LoadSettingsAsync(CancellationToken cancellationToken = default)
+    {
+        var path = Path.Combine(_baseDirectory, "settings.json");
+        if (!File.Exists(path))
+        {
+            Directory.CreateDirectory(_baseDirectory);
+            var defaults = new DiskSnapSettings();
+            var tempPath = Path.Combine(_baseDirectory, $".{Guid.NewGuid():N}.tmp");
+            var created = false;
+            try
+            {
+                await using (var output = new FileStream(tempPath, FileMode.CreateNew, FileAccess.Write, FileShare.None, 4096, FileOptions.Asynchronous))
+                {
+                    created = true;
+                    await JsonSerializer.SerializeAsync(output, defaults, SettingsJson, cancellationToken).ConfigureAwait(false);
+                }
+
+                cancellationToken.ThrowIfCancellationRequested();
+                File.Move(tempPath, path);
+                created = false;
+            }
+            finally
+            {
+                if (created)
+                {
+                    File.Delete(tempPath);
+                }
+            }
+
+            return defaults;
+        }
+
+        await using var input = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, 4096, FileOptions.Asynchronous);
+        var settings = await JsonSerializer.DeserializeAsync<DiskSnapSettings>(input, SettingsJson, cancellationToken).ConfigureAwait(false)
+            ?? throw new InvalidDataException("The settings file is empty.");
+        settings.Validate();
+        return settings;
+    }
+
+    public async Task<IReadOnlyList<ScanRule>> LoadRulesAsync(CancellationToken cancellationToken = default)
+    {
+        var path = Path.Combine(_baseDirectory, "rules.json");
+        if (!File.Exists(path))
+        {
+            Directory.CreateDirectory(_baseDirectory);
+            var tempPath = Path.Combine(_baseDirectory, $".{Guid.NewGuid():N}.tmp");
+            var created = false;
+            try
+            {
+                await using (var output = new FileStream(tempPath, FileMode.CreateNew, FileAccess.Write, FileShare.None, 4096, FileOptions.Asynchronous))
+                {
+                    created = true;
+                    await ScanRules.WriteDefaultsAsync(output, cancellationToken).ConfigureAwait(false);
+                }
+                cancellationToken.ThrowIfCancellationRequested();
+                File.Move(tempPath, path);
+                created = false;
+            }
+            finally
+            {
+                if (created)
+                {
+                    File.Delete(tempPath);
+                }
+            }
+        }
+
+        return await ScanRules.LoadAsync(path, cancellationToken).ConfigureAwait(false);
+    }
+
+    public async Task<string> WriteAsync(Snapshot snapshot, int maxSnapshots, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(snapshot);
+        if (maxSnapshots < 1)
+        {
+            throw new ArgumentOutOfRangeException(nameof(maxSnapshots));
+        }
+
+        var drive = NormalizeDrive(snapshot.Header.Drive);
+        if (!DateTimeOffset.TryParse(snapshot.Header.Utc, CultureInfo.InvariantCulture, DateTimeStyles.None, out var utc))
+        {
+            throw new InvalidDataException("The snapshot header has an invalid timestamp.");
+        }
+
+        cancellationToken.ThrowIfCancellationRequested();
+        var snapshotsDirectory = Path.Combine(_baseDirectory, "snapshots");
+        var driveDirectory = Path.Combine(snapshotsDirectory, drive[..1]);
+        Directory.CreateDirectory(_baseDirectory);
+        RejectReparsePoint(_baseDirectory);
+        Directory.CreateDirectory(snapshotsDirectory);
+        RejectReparsePoint(snapshotsDirectory);
+        Directory.CreateDirectory(driveDirectory);
+        RejectReparsePoint(driveDirectory);
+
+        var finalPath = Path.Combine(driveDirectory, utc.ToLocalTime().ToString("yyyyMMdd-HHmmss", CultureInfo.InvariantCulture) + ".jsonl.gz");
+        var tempPath = Path.Combine(driveDirectory, $".{Guid.NewGuid():N}.tmp");
+        var tempCreated = false;
+        try
+        {
+            await using (var file = new FileStream(tempPath, FileMode.CreateNew, FileAccess.Write, FileShare.None, 64 * 1024, FileOptions.Asynchronous))
+            {
+                tempCreated = true;
+                await SnapshotFile.WriteAsync(file, snapshot, cancellationToken).ConfigureAwait(false);
+            }
+
+            cancellationToken.ThrowIfCancellationRequested();
+            File.Move(tempPath, finalPath);
+            tempCreated = false;
+        }
+        finally
+        {
+            if (tempCreated)
+            {
+                File.Delete(tempPath);
+            }
+        }
+
+        await ApplyRetentionAsync(driveDirectory, drive, maxSnapshots).ConfigureAwait(false);
+        return finalPath;
+    }
+
+    public static string NormalizeDrive(string drive)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(drive);
+        if (drive.Length != 2 || !char.IsAsciiLetter(drive[0]) || drive[1] != ':')
+        {
+            throw new ArgumentException("Drive must be a letter followed by a colon, for example C:.", nameof(drive));
+        }
+
+        return char.ToUpperInvariant(drive[0]) + ":";
+    }
+
+    private async Task ApplyRetentionAsync(string driveDirectory, string drive, int maxSnapshots)
+    {
+        CheckStoreDirectories(driveDirectory);
+        var prefix = Path.GetFullPath(driveDirectory).TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
+        var candidates = new List<(string Path, DateTimeOffset Utc)>();
+        foreach (var candidate in Directory.EnumerateFiles(driveDirectory, "*.jsonl.gz"))
+        {
+            var path = Path.GetFullPath(candidate);
+            if (!IsSnapshotName(Path.GetFileName(path)))
+            {
+                continue;
+            }
+            RejectReparsePoint(path);
+            var header = await SnapshotFile.ReadHeaderAsync(path).ConfigureAwait(false);
+            if (!string.Equals(NormalizeDrive(header.Drive), drive, StringComparison.Ordinal) ||
+                !DateTimeOffset.TryParse(header.Utc, CultureInfo.InvariantCulture, DateTimeStyles.None, out var utc))
+            {
+                throw new InvalidDataException($"Invalid snapshot header in '{path}'.");
+            }
+            candidates.Add((path, utc.ToUniversalTime()));
+        }
+
+        foreach (var (path, _) in candidates.OrderByDescending(item => item.Utc)
+                     .ThenByDescending(item => item.Path, StringComparer.Ordinal).Skip(maxSnapshots))
+        {
+            if (!path.StartsWith(prefix, StringComparison.OrdinalIgnoreCase) ||
+                !string.Equals(Path.GetDirectoryName(path), driveDirectory, StringComparison.OrdinalIgnoreCase))
+            {
+                throw new IOException($"Retention target is outside the drive store: '{path}'.");
+            }
+
+            CheckStoreDirectories(driveDirectory);
+            RejectReparsePoint(path);
+            File.Delete(path);
+        }
+    }
+
+    private void CheckStoreDirectories(string driveDirectory)
+    {
+        RejectReparsePoint(_baseDirectory);
+        RejectReparsePoint(Path.Combine(_baseDirectory, "snapshots"));
+        RejectReparsePoint(driveDirectory);
+    }
+
+    private static bool IsSnapshotName(string name) =>
+        name.Length == 24 && name.EndsWith(".jsonl.gz", StringComparison.Ordinal) &&
+        DateTime.TryParseExact(name[..15], "yyyyMMdd-HHmmss", CultureInfo.InvariantCulture, DateTimeStyles.None, out _);
+
+    private static void RejectReparsePoint(string path)
+    {
+        if ((File.GetAttributes(path) & FileAttributes.ReparsePoint) != 0)
+        {
+            throw new IOException($"Snapshot store path is a reparse point: '{path}'.");
+        }
+    }
+}
