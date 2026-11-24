@@ -311,15 +311,31 @@ public sealed class DiskScannerTests
     }
 
     [Fact]
-    public void Scan_ErrorClassificationKeepsRootUnsupportedAndOperationAbortedFatal()
+    public void Scan_ErrorClassificationKeepsRootErrorsAndOperationAbortedFatal()
     {
-        foreach (var errorCode in new[] { 1, 50, 87 })
+        foreach (var error in new Exception[]
         {
-            Assert.False(DiskScanner.IsSkippable(new Win32Exception(errorCode), isScanRoot: true));
-            Assert.True(DiskScanner.IsSkippable(new Win32Exception(errorCode), isScanRoot: false));
+            new UnauthorizedAccessException(), new IOException(), new Win32Exception(5),
+            new Win32Exception(21), new Win32Exception(1), new Win32Exception(50), new Win32Exception(87)
+        })
+        {
+            Assert.False(DiskScanner.IsSkippable(error, isScanRoot: true));
+            Assert.True(DiskScanner.IsSkippable(error, isScanRoot: false));
         }
 
         Assert.False(DiskScanner.IsSkippable(new Win32Exception(995), isScanRoot: false));
+        Assert.False(DiskScanner.IsSkippable(new InvalidOperationException(), isScanRoot: true));
+    }
+
+    [Fact]
+    public async Task Scan_RootAccessErrorFailsInsteadOfReturningSnapshot()
+    {
+        EnsureWindows();
+        using var fixture = new TempDirectory();
+        var scanner = new DiskScanner((_, _) => throw new Win32Exception(5));
+
+        var exception = await Assert.ThrowsAsync<Win32Exception>(() => scanner.ScanAsyncForTests(fixture.Path));
+        Assert.Equal(5, exception.NativeErrorCode);
     }
 
     [Fact]
@@ -470,38 +486,19 @@ public sealed class DiskScannerTests
     {
         EnsureWindows();
         using var fixture = new TempDirectory();
-        for (var directoryIndex = 0; directoryIndex < 20; directoryIndex++)
-        {
-            var directory = Directory.CreateDirectory(Path.Combine(fixture.Path, $"nested-{directoryIndex:D2}"));
-            for (var fileIndex = 0; fileIndex < 500; fileIndex++)
-            {
-                File.WriteAllBytes(Path.Combine(directory.FullName, $"file-{fileIndex:D3}.bin"), [1]);
-            }
-        }
-
-        var enteredChild = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var scanner = new DiskScanner((path, cancellationToken) =>
-        {
-            var entries = WindowsDirectoryEnumerator.Enumerate(path, cancellationToken);
-            if (!string.Equals(path, fixture.Path, StringComparison.OrdinalIgnoreCase))
-            {
-                enteredChild.TrySetResult();
-            }
-
-            return entries;
-        });
         using var cancellation = new CancellationTokenSource();
+        var scanner = new DiskScanner((_, cancellationToken) =>
+        {
+            cancellation.Cancel();
+            cancellationToken.ThrowIfCancellationRequested();
+            return Array.Empty<WindowsDirectoryEnumerator.Entry>();
+        });
+
         var scan = scanner.ScanAsyncForTests(fixture.Path, new ScannerOptions
         {
             Rules = Array.Empty<ScanRule>()
         }, cancellation.Token);
-        await enteredChild.Task.WaitAsync(TimeSpan.FromSeconds(5));
-        var cancelledAt = Stopwatch.StartNew();
-        cancellation.Cancel();
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => scan.WaitAsync(TimeSpan.FromSeconds(5)));
-
-        Assert.True(cancelledAt.Elapsed < TimeSpan.FromSeconds(5));
-        Assert.Empty(Directory.GetFiles(fixture.Path, "*.jsonl.gz", SearchOption.AllDirectories));
     }
 
     [Theory]

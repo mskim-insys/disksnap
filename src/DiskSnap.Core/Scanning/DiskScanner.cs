@@ -394,12 +394,11 @@ public sealed class DiskScanner
         });
     }
 
-    internal static bool IsSkippable(Exception exception, bool isScanRoot) => exception switch
+    internal static bool IsSkippable(Exception exception, bool isScanRoot) => !isScanRoot && exception switch
     {
         UnauthorizedAccessException => true,
         IOException => true,
         Win32Exception nativeException when nativeException.NativeErrorCode == ErrorOperationAborted => false,
-        Win32Exception nativeException when IsUnsupportedEnumerationError(nativeException) => !isScanRoot,
         Win32Exception => true,
         _ => false
     };

@@ -53,3 +53,9 @@
 - Decision: on the scan root, fail with a `NotSupportedException` naming the drive and filesystem; on an inner directory, skip and count it like access denied. Error 995 remains non-skippable.
 - Alternatives considered: treating these errors as fatal everywhere would abort scans for isolated directories; skipping them at the root would produce a misleading partial snapshot when the enumeration API is unavailable for the volume.
 - Impact / follow-ups: user-facing scan failures identify the volume and filesystem; skipped inner paths appear in the existing summary.
+
+## 2026-11-24-01 Error handling: all root enumeration failures are fatal
+- Context: 2026-11-23-02 handled unsupported APIs at the root, but skipping other root errors could produce a successful empty snapshot for an unavailable drive.
+- Decision: any exception enumerating the scan root fails the scan. Unsupported API errors retain their drive and filesystem diagnostic; skippable inner-directory errors still count as skipped.
+- Alternatives considered and rejected: skipping root access or I/O errors would misrepresent a failed drive scan as success.
+- Impact / follow-ups: no snapshot or retention should follow a failed root enumeration.

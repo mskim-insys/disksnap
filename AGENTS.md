@@ -4,7 +4,7 @@ Personal Windows disk-usage snapshot tool: scan drives, store compressed snapsho
 
 ## Read first
 - README.md for current usage and behavior
-- Active specs: specs/disksnap.md (requirements, acceptance criteria, milestones M0-M5)
+- Active specs: specs/disksnap.md (requirements, acceptance criteria, milestones M0-M6)
 - DECISIONS.md before changing the stack, snapshot format, size metric, or retrying a rejected approach
 - worklogs/disksnap.md Handover block: create it when M0 starts (milestone work always gets a worklog)
 
