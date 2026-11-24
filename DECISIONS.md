@@ -46,7 +46,7 @@
 - Context: directory entries carrying `RECALL_ON_DATA_ACCESS` may represent cloud placeholders; opening them for enumeration may fetch placeholder contents over the network.
 - Decision: open. Keep current behavior unchanged until the user decides whether and how to enumerate these directories.
 - Alternatives considered: enumerate normally and risk network hydration; skip such directories and report them as skipped, which may omit local data.
-- Impact / follow-ups: the user must decide before the first real-drive scan. No real-drive scan is authorized by this entry.
+- Impact / follow-ups: decide before scanning a drive that may contain cloud placeholder directories. No real-drive scan is authorized by this entry.
 
 ## 2026-11-23-02 Error handling: unsupported enumeration errors depend on scan depth
 - Context: Win32 errors 1, 50, and 87 from bulk directory enumeration may indicate that the API is unsupported on the volume, but can also arise on an individual inner directory.
@@ -77,3 +77,9 @@
 - Decision: warn on stderr and skip unreadable, foreign-drive, or invalid-header candidates without deleting them; retain valid candidates using the existing UTC ordering. The saved path and successful exit remain available.
 - Alternatives considered and rejected: failing the write after saving misreports success; deleting an unvalidated candidate risks losing unrelated or unreadable data.
 - Impact / follow-ups: the folder may contain more than `maxSnapshots` files because skipped candidates do not count toward retention.
+
+## 2026-11-24-05 Comparison of threshold-hidden files
+- Context: an individually recorded file can have been folded into the other snapshot's small-files aggregate, even when its parent was expanded; thresholds can differ between scans. Unmeasured exclusions also store zero.
+- Decision: use the missing side's header threshold and report such file sizes and presence as unknown rather than inventing zero; preserve exact recorded directory deltas. Treat missing aggregates under expanded parents as zero recorded aggregate size, and unmeasured or ambiguous excluded sizes as unknown. See R17 for the complete rules.
+- Alternatives considered and rejected: treating every child missing under an expanded parent as new or removed fabricates file deltas and double-counts threshold crossings. Applying today's rules or thresholds to old snapshots cannot recover historical measurement choices.
+- Impact / follow-ups: consumers must support unknown sizes and presence and distinguish aggregate changes from individual file changes. The existing snapshot schema does not record enough information to disambiguate every exclusion.

@@ -13,3 +13,5 @@ See Commands in AGENTS.md.
 
 ## Current behavior and limits
 The scanner uses bulk allocated-size directory queries, handles reparse points, cloud placeholders and hard links, supports thresholds and rules, and records skipped paths. Public scans require a volume root (`C:` is normalized to `C:\`) because rule paths are drive-relative. Cloud placeholder directory handling remains an open decision in DECISIONS.md.
+
+The Core library can compare in-memory snapshots from the same volume, including threshold-aware unknowns and ranked growers or shrinkers. Comparison is not yet exposed in the GUI or command line.

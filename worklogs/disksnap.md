@@ -3,15 +3,20 @@ Spec: specs/disksnap.md
 Status: in progress
 
 ## Handover
-- Current milestone: M3; exit criteria live in the [spec](../specs/disksnap.md#acceptance-criteria).
-- Done and verified: M2 closed on user-reported elevated tests and a headless scan; see the session below.
-- Not done / partial: M3 diff engine has not started.
-- First step next session: Update R17 for threshold-hidden files before implementing M3.
+- Current milestone: M3; exit criteria remain unchecked in the [spec](../specs/disksnap.md#acceptance-criteria).
+- Done and verified: M2 closed on user-reported tests and a headless scan; M3 Core comparison and in-memory fixtures compile in Release.
+- Not done / partial: M3 tests await the user; no M3 acceptance criteria were checked.
+- First step next session: Review the user's elevated Release test results, including the large in-memory comparison, and resolve failures before closing M3.
 - Read first: `README.md`, `specs/disksnap.md`, `DECISIONS.md`, this Handover.
-- Traps: Do not scan a real drive or access `%LOCALAPPDATA%\DiskSnap` in tests. GUI elevation remains future work (2026-11-24-02); invalid retention candidates are preserved (2026-11-24-04).
+- Traps: Do not scan a real drive or access `%LOCALAPPDATA%\DiskSnap` in tests. File thresholds are conditional folding evidence, not guaranteed bounds; exclusions can be ambiguous (2026-11-24-05). GUI elevation remains future work (2026-11-24-02).
 - Open questions: Cloud placeholder directory handling remains undecided (2026-11-23-01); the symlink privilege-missing skip path remains untested on an unprivileged machine.
 
 ## Sessions (newest first)
+### 2026-11-24 · M3
+- Changed: Updated R17 and recorded 2026-11-24-05; added the Core comparison tree, ranked growers/shrinkers, rule guidance and in-memory fixtures, including a 200,000-node pair.
+- Verified: `dotnet build DiskSnap.sln -c Release` succeeded with 0 warnings and 0 errors; tests were not run at the user's request. No real-drive scans were performed.
+- Risks / open: [AC10](../specs/disksnap.md#acceptance-criteria) awaits the user's test run; threshold crossings affect aggregate deltas and unmeasured exclusions have ambiguous sizes.
+
 ### 2026-11-24 · M2 verification
 - Changed: Checked AC9 and AC11 based on the user's verification.
 - Verified: The user ran `dotnet test DiskSnap.sln -c Release` elevated: 45 total, 44 passed, 1 skipped (opt-in benchmark), 0 failed. The user successfully ran `start /wait DiskSnap.exe --scan X:` and checked its exit code. The resulting snapshot was 6 KB compressed and 27 KB raw; X: is a real 100 GB partition with about 10 GB used (a 5 GB page file and about 5 GB of copied temp files). It contains few files, so the snapshot is not representative of C:.
