@@ -12,4 +12,4 @@ Snapshots are stored under `%LOCALAPPDATA%\DiskSnap\snapshots\<drive letter>`; `
 See Commands in AGENTS.md.
 
 ## Current behavior and limits
-The scanner uses bulk allocated-size directory queries, handles reparse points, cloud placeholders and hard links, supports thresholds and rules, and records skipped paths. Public scans require a volume root (`C:` is normalized to `C:\`) because rule paths are drive-relative. Real-drive scanning has not been performed; cloud placeholder directory handling remains an open decision in DECISIONS.md.
+The scanner uses bulk allocated-size directory queries, handles reparse points, cloud placeholders and hard links, supports thresholds and rules, and records skipped paths. Public scans require a volume root (`C:` is normalized to `C:\`) because rule paths are drive-relative. Cloud placeholder directory handling remains an open decision in DECISIONS.md.

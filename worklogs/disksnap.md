@@ -3,15 +3,20 @@ Spec: specs/disksnap.md
 Status: in progress
 
 ## Handover
-- Current milestone: M2; exit criteria remain unchecked in the [spec](../specs/disksnap.md#acceptance-criteria).
-- Done and verified: M2 follow-up builds in Release; retention skips unsafe candidates, stale temps are cleaned, and headless cancellation and summaries are wired.
-- Not done / partial: M2 tests and runtime verification await the user; no acceptance criteria were checked this session.
-- First step next session: Review the user's elevated test results and resolve any failures.
+- Current milestone: M3; exit criteria live in the [spec](../specs/disksnap.md#acceptance-criteria).
+- Done and verified: M2 closed on user-reported elevated tests and a headless scan; see the session below.
+- Not done / partial: M3 diff engine has not started.
+- First step next session: Update R17 for threshold-hidden files before implementing M3.
 - Read first: `README.md`, `specs/disksnap.md`, `DECISIONS.md`, this Handover.
 - Traps: Do not scan a real drive or access `%LOCALAPPDATA%\DiskSnap` in tests. GUI elevation remains future work (2026-11-24-02); invalid retention candidates are preserved (2026-11-24-04).
-- Open questions: Decide cloud placeholder directory handling before the first real-drive scan (2026-11-23-01); the symlink privilege-missing skip path remains untested on an unprivileged machine.
+- Open questions: Cloud placeholder directory handling remains undecided (2026-11-23-01); the symlink privilege-missing skip path remains untested on an unprivileged machine.
 
 ## Sessions (newest first)
+### 2026-11-24 · M2 verification
+- Changed: Checked AC9 and AC11 based on the user's verification.
+- Verified: The user ran `dotnet test DiskSnap.sln -c Release` elevated: 45 total, 44 passed, 1 skipped (opt-in benchmark), 0 failed. The user successfully ran `start /wait DiskSnap.exe --scan X:` and checked its exit code. The resulting snapshot was 6 KB compressed and 27 KB raw; X: is a real 100 GB partition with about 10 GB used (a 5 GB page file and about 5 GB of copied temp files). It contains few files, so the snapshot is not representative of C:.
+- Risks / open: Cloud placeholder directory handling remains open (2026-11-23-01); C: scan time and representative snapshot size remain unmeasured.
+
 ### 2026-11-24 · M2 follow-up
 - Changed: Made retention skip unsafe candidates with warnings, added stale-temp cleanup, wired Ctrl+C, added headless summaries and drive-root normalization, updated temp-store tests and usage docs; recorded 2026-11-24-04.
 - Verified: `dotnet build DiskSnap.sln -c Release` succeeded; tests were not run at the user's request. No real-drive scans were performed.
