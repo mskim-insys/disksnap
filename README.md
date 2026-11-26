@@ -2,18 +2,24 @@
 Personal Windows tool that records disk-usage snapshots and compares two of them to show which folder or file grew.
 
 ## Usage
-Run `dotnet run --project src/DiskSnap.App` or launch `DiskSnap.exe` without arguments to open the GUI. A non-elevated GUI launch prompts to restart with administrator privileges; if declined, it continues with a visible warning. The left pane lists ready fixed drives, including external USB hard disks Windows reports as Fixed. Select one or more drives to scan sequentially, monitor progress, cancel, browse snapshots, choose A/B, or request deletion with confirmation. With at least two snapshots, the GUI selects the newest pair by default. The selection strip shows A and B and can clear them; selected rows are highlighted and badged. Picking a snapshot on a different drive clears the opposite slot, and each drive's Compare latest two button replaces the selection with its newest pair. Pairs with different volume serials are refused. The Compare tab shows an expandable, virtualized tree with growth filtering and path actions. Top growers ranks the current comparison, with shrinker, root and minimum-delta controls; double-click a row to show it in the tree. Special folders shows recorded exclusions, collapsed folders, cloud placeholders and rule matches, with selectable display-only guidance and unaccounted space. Settings changes apply to future scans; retention runs after the next successful snapshot write.
+Launch `DiskSnap.exe` to open the GUI. If not already elevated, it prompts to restart as administrator; if declined, it continues with a warning. Select one or more ready fixed drives and choose **Scan**. You can monitor progress or cancel, and delete snapshots from the drive list with confirmation.
 
-`DiskSnap.exe --scan C: D: [--quiet]` scans each listed drive without opening a window. It returns zero only if every drive succeeds. `--quiet` suppresses progress and the final summary, not errors or warnings. Ctrl+C cancels a headless scan, which remains asInvoker and never prompts for elevation.
+Choose snapshots with their **A** and **B** buttons, or use **Compare latest two** for a drive; **Clear** clears the selection. Comparisons require the same drive and volume serial. The **Compare** tab shows a tree with growth filtering and path actions. **Top growers** ranks changes and can show shrinkers; double-click a row to find it in the tree. **Special folders** shows exclusions, cloud placeholders, rule matches and display-only guidance. **Settings** changes apply to future scans; retention runs after a successful snapshot write.
 
-DiskSnap.exe is a windowless program; in cmd, use `start /wait DiskSnap.exe --scan X:` and then `echo %ERRORLEVEL%` to see its exit code. Task Scheduler is unaffected; run scheduled scans with highest privileges.
+Snapshots are stored under `%LOCALAPPDATA%\DiskSnap\snapshots\<drive letter>`; `settings.json` and editable `rules.json` live under `%LOCALAPPDATA%\DiskSnap`. Defaults are created when needed. The default retention is 30 snapshots per drive, and the default directory and file thresholds are 256 MiB and 64 MiB. A same-second filename collision fails rather than overwriting a snapshot.
 
-Snapshots are stored under `%LOCALAPPDATA%\DiskSnap\snapshots\<drive letter>`; `settings.json` and editable `rules.json` are in `%LOCALAPPDATA%\DiskSnap`. Defaults are created on first scan. Settings are `maxSnapshots` (default 30), `dirThreshold` (default 268435456 bytes), and `fileThreshold` (default 67108864 bytes). Size inputs without a unit are MiB; `B`, `KB`, `MB`, `GB`, `TB`, and binary `KiB` through `TiB` are accepted (for example `50MB` or `1GiB`). Retention runs only after a successful write; unreadable, invalid, or foreign-drive candidates are left in place with a warning. A same-second filename collision fails rather than overwriting a snapshot. At the start of a write, stale `.<32 hex>.tmp` files older than 24 hours are cleaned from that drive's snapshot folder.
+### Headless scans
+Run `DiskSnap.exe --scan C: D: [--quiet]` to scan without a window. Replace the drives with the desired volume roots; omit the brackets around `--quiet`. Quiet mode suppresses progress and the final summary, not errors or warnings. Headless mode does not request elevation; it warns if unelevated. Ctrl+C cancels. The exit code is 0 only if every drive succeeds. In Command Prompt, wait for the windowless executable before reading the exit code:
 
-## Build and run
-See Commands in AGENTS.md.
+```cmd
+start /wait DiskSnap.exe --scan X:
+echo %ERRORLEVEL%
+```
+
+For scheduled scans, create a Windows Task Scheduler task pointing to `DiskSnap.exe`, pass `--scan C: D:` as arguments, and select **Run with highest privileges**.
+
+## Build and publish
+See the build commands in AGENTS.md. To publish for Windows x64, run `dotnet publish src/DiskSnap.App -c Release -r win-x64 -o artifacts/publish`; the executable is `artifacts/publish/DiskSnap.exe`.
 
 ## Current behavior and limits
-The scanner uses bulk allocated-size directory queries, handles reparse points, cloud placeholders and hard links, supports thresholds and rules, and records skipped paths. Public scans require a volume root (`C:` is normalized to `C:\`) because rule paths are drive-relative. Cloud placeholder directories are not enumerated, including during measured exclusions; their local contents may be omitted.
-
-The Core library and GUI can compare snapshots from the same drive and volume serial, including threshold-aware unknowns and ranked growers. A folder below `dirThreshold` is recorded by name and total only; its files do not appear in the snapshot. Exact new/removed presence is distinguished from newly observed files; any folding-based lower bound is conditional, since exclusions or skips can also hide files. Comparison is not exposed in the headless command line yet.
+Sizes are allocated bytes. A folder below the directory threshold is recorded by name and total, not its children; small files inside expanded folders are aggregated. A file missing from one snapshot may have been folded, excluded or skipped, so it can be described as **newly observed** rather than definitely new; any folding-based lower bound is conditional. Cloud placeholder directories are not enumerated, even within measured exclusions, so their local contents may be omitted. Report export and headless `--compare` are not available.
