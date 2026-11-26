@@ -3,46 +3,48 @@ Spec: specs/disksnap.md
 Status: in progress
 
 ## Handover
-- Current milestone: M4-C; milestone criteria are in the [spec](../specs/disksnap.md#milestones).
-- Done and verified: M4-B GUI interactions were manually verified by the user. Selection UX changes and UI-free regression tests were added; see the session entry for build verification.
-- Not done / partial: User test and GUI verification remain pending; milestone criteria are unchecked. M4-C Special folders binding and comparison error-message fixes still need user verification.
-- First step next session: Review the user's test and GUI results.
+- Current milestone: M5 (publish); M6 (report export) follows. M0-M4 are complete; criteria are in the [spec](../specs/disksnap.md#milestones).
+- Done and verified (by the user, on real drives): M0-M3, M4-A/B/C GUI (compare tree, Top growers, Special folders, Settings, selection strip with Clear and Compare latest two, cross-drive selection). AC12 and AC13 are checked.
+- Not done: M5 (AC14: single-file win-x64 publish, README describes current usage), M6 (AC15/AC16: LLM report export, headless `--compare`, GUI Export report).
+- First step next session: read the spec M5 section and DECISIONS, then build M5. Do not start M6 until M5 is verified by the user.
 - Read first: `README.md`, `specs/disksnap.md`, `DECISIONS.md`, this Handover.
-- Traps: Do not scan a real drive or access `%LOCALAPPDATA%\DiskSnap` in tests. A folder below `dirThreshold` is recorded by name only, so its files never appear. Cloud directory contents may be omitted (2026-11-24-06); file change lower bounds assume folding and are not guaranteed when exclusions or skips apply (2026-11-24-07). Compare selections must share a drive and volume serial.
-- How to try selection: Restore the X: comparison, choose an E: snapshot as A and verify the X: B slot clears, then choose a second E: snapshot as B and verify comparison runs. Clear the selection, then use Compare latest two on each drive; check the strip and row badges throughout.
-- Other checks: Open Top growers, toggle Shrinkers and Include root, and double-click a row to jump in the tree. Check Special folders on X: and settings persistence. For the AC13-style check, use a >=300 MiB file in a new folder with thresholds that record it and compare scans before and after creation. Run the Core tests as appropriate.
-- Open questions: User test and GUI verification are pending.
+- Traps:
+  - Do not scan a real drive or access `%LOCALAPPDATA%\DiskSnap` in tests.
+  - A folder below `dirThreshold` is recorded by name only, so its files never appear.
+  - Cloud directory contents may be omitted (2026-11-24-06); file change lower bounds assume folding and are not guaranteed when exclusions or skips apply (2026-11-24-07).
+  - Compare selections must share a drive and volume serial; picking another drive replaces the selection.
+  - WPF: bindings to get-only properties on Run.Text/TextBox.Text need Mode=OneWay (a missed one broke Special folders once; unit tests cannot catch it).
+  - Smart App Control / WDAC may block freshly built or published binaries; the user's own test runs are the verification source.
+  - WinExe: from cmd use `start /wait DiskSnap.exe --scan ...` to get the exit code; the GUI relaunches itself elevated with an internal `--gui`.
+- M6 notes: reuse the GUI wording ("newly observed", "no longer observed", "at least", the folding assumption) so an LLM reading the report does not treat unproven numbers as exact. Reports contain paths only, never file contents; the GUI warns before copying; output is deterministic and capped (default about 20 KB) with an omission note.
+- Open questions: none.
 
 ## Sessions (newest first)
 ### 2026-11-26 · M4-C
 - Changed: Added cross-drive selection replacement, a selection strip, highlighted A/B badges, Clear and per-drive Compare latest two; added UI-free selection tests and updated R15/R19.
 - Verified: Visual Studio workspace build succeeded. Tests and GUI were not run at the user's request; no real-drive scans were performed.
-- Risks / open: User verification is pending; see the [milestone criteria](../specs/disksnap.md#milestones).
 
 ### 2026-11-24 · M4-C
 - Changed: Added Top growers, Special folders, atomic settings editing, comparison keyboard and sign indicators, ordered scan updates, and temp-only Core tests; refined the small-range notification behavior from 2026-11-24-09.
 - Verified: Visual Studio workspace build and `dotnet build DiskSnap.sln -c Release --no-restore` succeeded (0 warnings, 0 errors). Tests and GUI checks were left to the user; no real-drive scans were performed.
-- Risks / open: User verification is pending; see the [milestone criteria](../specs/disksnap.md#milestones).
 
 ### 2026-11-24 · M4-B
 - Changed: Added reusable binary size formatting, the iterative flattened comparison model and range-indexed virtualized Compare list, automatic same-drive/serial A/B selection and async compare, display-only guidance, and Explorer/clipboard actions. Replaced the synchronous refresh and Dispatcher.Invoke progress wrapper; recorded 2026-11-24-09 and -10.
 - Verified: `dotnet build DiskSnap.sln -c Release` succeeded. Tests and GUI checks were left to the user; no real-drive scan was performed. AC12 remains unchecked.
-- Risks / open: User-run tests and GUI verification are pending; Top growers and Special folders are M4-C work.
 
 ### 2026-11-24 · M4-A
 - Changed: Added throttled scan progress, a shared Core `ScanService` for GUI and headless scanning, ready-fixed-drive catalog, safe snapshot listing/deletion, and the M4-A WPF shell; added temp-only tests and recorded 2026-11-24-08.
 - Verified: `dotnet build DiskSnap.sln -c Release` succeeded. Tests and GUI checks were left to the user; no real-drive scan was performed. AC12 remains unchecked.
-- Risks / open: User verification is pending; M4-B comparison work has not started.
 
 ### 2026-11-24 · M3 follow-up
 - Changed: Updated R5, R17 and R18; recorded 2026-11-24-06 and 2026-11-24-07. Added cloud-directory safeguards, qualifying child attribution, observed-file metadata and candidates, root visibility control, and regression fixtures.
 - Verified: `dotnet build DiskSnap.sln -c Release` succeeded with 0 warnings and 0 errors. Tests were not run at the user's request; no real-drive scans were performed.
-- Risks / open: The user will run the follow-up tests. An enclosing measured exclusion hides placeholder descendants; folding-based bounds are conditional.
 
 ### 2026-11-24 · M3 verification
 - Changed: Checked AC10 after reviewing the diff fixtures.
 - Verified: The user ran `dotnet test DiskSnap.sln -c Release` elevated: 57 total, 56 passed, 1 skipped (opt-in benchmark), 0 failed.
 - Risks / open: Cloud placeholder directory handling remains undecided (2026-11-23-01).
+
 ### 2026-11-24 · M3
 - Changed: Updated R17 and recorded 2026-11-24-05; added the Core comparison tree, ranked growers/shrinkers, rule guidance and in-memory fixtures, including a 200,000-node pair.
 - Verified: `dotnet build DiskSnap.sln -c Release` succeeded with 0 warnings and 0 errors; tests were not run at the user's request. No real-drive scans were performed.
@@ -81,7 +83,6 @@ Status: in progress
 ### 2026-11-13 · M1
 - Changed: Added the Windows bulk-query scanner, link/cloud/hard-link handling, skipped-path reporting, thresholds, rules, and temp-only AC3-AC8 tests.
 - Verified: `dotnet build DiskSnap.sln -c Release` succeeded with 0 warnings and 0 errors. A temporary 1,000-file fixture returned the expected 4,096,000 allocated bytes in a 0.5 ms bulk query. `dotnet test tests\DiskSnap.Core.Tests\DiskSnap.Core.Tests.csproj -c Release --no-build` was blocked when Windows Application Control denied loading `DiskSnap.Core.dll` (`0x800711C7`); no tests executed. User-run result pending.
-- Risks / open: Runtime AC3-AC8 verification remains pending; no real-drive scan was performed.
 
 ### 2026-11-13 · M6
 - Scope change: added R21, R22, AC15, AC16, and M6 for LLM report export.
