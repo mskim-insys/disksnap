@@ -1,6 +1,6 @@
 # Spec: DiskSnap
 Status: active
-Last updated: 2026-11-24
+Last updated: 2026-11-26
 
 ## Goal
 A personal Windows tool that records disk-usage snapshots of one or more drives and compares two snapshots, so that when free space suddenly drops the user can see which folder or file grew. Comparison is the main feature. The scan must be cheap enough to run routinely, and snapshots small enough to keep many.
@@ -41,7 +41,7 @@ A personal Windows tool that records disk-usage snapshots of one or more drives 
   - The agent may refine field names in M0. The final schema must be written back into this section and `v` bumped on any later change.
 
 ### Comparison
-- R15 Selection: compare any two snapshots of the same volume serial (refuse otherwise). Default is newest against the previous one.
+- R15 Selection: compare any two snapshots of the same drive and volume serial (refuse a same-drive serial mismatch). Default is newest against the previous one. Choosing a snapshot from a different drive clears the opposite slot and the old comparison; the user can clear both slots or replace them with a drive's latest two snapshots.
 - R16 Matching: match nodes by normalized path (case-insensitive). Delta = newer minus older.
 - R17 Presence rules:
   - In both: delta is exact for recorded sizes. Ancestor deltas use recorded subtree totals; skipped and unmeasured content remains outside those totals.
@@ -60,7 +60,8 @@ A personal Windows tool that records disk-usage snapshots of one or more drives 
 
 ### Interfaces
 - R19 GUI (WPF), plain and usable:
-  - Left pane: drive checkboxes with a Scan button, scan progress (current path, items scanned, skipped count) with Cancel, and the snapshot list per drive (date, size, delete, choose as A or B).
+  - Left pane: drive checkboxes with a Scan button, scan progress (current path, items scanned, skipped count) with Cancel, and the snapshot list per drive (date, size, delete, choose as A or B). Highlight and badge the selected rows; provide Compare latest two per drive, disabled with fewer than two snapshots.
+  - Above the main tabs, show both selected snapshots or their empty state, with a Clear button.
   - Main pane tabs: Compare (tree), Top growers (flat), Special folders.
   - Compare tree columns: Name, Older, Newer, Delta, Delta %, a delta bar. Siblings sorted by absolute delta descending. A "growth only" filter. Context menu: open in Explorer, copy path. A "Jump to biggest grower" action expands the path to the largest culprit.
   - The tree must stay responsive with hundreds of thousands of nodes: virtualized, nodes built lazily.

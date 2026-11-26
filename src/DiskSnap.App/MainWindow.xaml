@@ -5,6 +5,7 @@
         Title="DiskSnap" Height="760" Width="1180" MinHeight="560" MinWidth="900">
     <Window.Resources>
         <local:DepthToIndentConverter x:Key="DepthToIndentConverter" />
+        <local:SnapshotSelectionBadgeConverter x:Key="SnapshotSelectionBadgeConverter" />
         <BooleanToVisibilityConverter x:Key="BooleanToVisibilityConverter" />
     </Window.Resources>
     <Grid Margin="12">
@@ -34,17 +35,44 @@
                         <TextBlock Text="Skipped: " />
                         <TextBlock Text="{Binding SkippedCount, StringFormat={}{0:N0}}" />
                     </StackPanel>
-                    <TextBlock Text="{Binding SelectionA}" TextTrimming="CharacterEllipsis" ToolTip="{Binding SelectionA}" />
-                    <TextBlock Text="{Binding SelectionB}" TextTrimming="CharacterEllipsis" ToolTip="{Binding SelectionB}" Margin="0,0,0,10" />
                     <ItemsControl ItemsSource="{Binding Drives}">
                         <ItemsControl.ItemTemplate>
                             <DataTemplate>
                                 <StackPanel Margin="0,0,0,10">
-                                    <CheckBox Content="{Binding Name}" IsChecked="{Binding IsSelected, Mode=TwoWay}" VerticalContentAlignment="Center" FontWeight="SemiBold" FontSize="15" Margin="0,0,0,4" />
+                                    <DockPanel Margin="0,0,0,4">
+                                        <Button DockPanel.Dock="Right" Content="Compare latest two" Padding="6,2" Command="{Binding DataContext.CompareLatestTwoCommand, RelativeSource={RelativeSource AncestorType={x:Type Window}}}" CommandParameter="{Binding}">
+                                            <Button.Style>
+                                                <Style TargetType="Button">
+                                                    <Style.Triggers>
+                                                        <DataTrigger Binding="{Binding Snapshots.Count}" Value="0"><Setter Property="IsEnabled" Value="False" /></DataTrigger>
+                                                        <DataTrigger Binding="{Binding Snapshots.Count}" Value="1"><Setter Property="IsEnabled" Value="False" /></DataTrigger>
+                                                    </Style.Triggers>
+                                                </Style>
+                                            </Button.Style>
+                                        </Button>
+                                        <CheckBox Content="{Binding Name}" IsChecked="{Binding IsSelected, Mode=TwoWay}" VerticalContentAlignment="Center" FontWeight="SemiBold" FontSize="15" />
+                                    </DockPanel>
                                     <ItemsControl ItemsSource="{Binding Snapshots}">
                                         <ItemsControl.ItemTemplate>
                                             <DataTemplate>
-                                                <Border BorderBrush="#FFE5E5E5" BorderThickness="1" Padding="5" Margin="12,2,0,2" ToolTip="{Binding Summary}">
+                                                <Border BorderThickness="1" Padding="5" Margin="12,2,0,2" ToolTip="{Binding Summary}">
+                                                    <Border.Tag>
+                                                        <MultiBinding Converter="{StaticResource SnapshotSelectionBadgeConverter}">
+                                                            <Binding Path="Snapshot.Path" />
+                                                            <Binding Path="DataContext.SelectedSnapshotA.Path" RelativeSource="{RelativeSource AncestorType={x:Type Window}}" />
+                                                            <Binding Path="DataContext.SelectedSnapshotB.Path" RelativeSource="{RelativeSource AncestorType={x:Type Window}}" />
+                                                        </MultiBinding>
+                                                    </Border.Tag>
+                                                    <Border.Style>
+                                                        <Style TargetType="Border">
+                                                            <Setter Property="BorderBrush" Value="#FFE5E5E5" />
+                                                            <Style.Triggers>
+                                                                <DataTrigger Binding="{Binding Tag, RelativeSource={RelativeSource Self}}" Value="A"><Setter Property="Background" Value="#FFE2EFFC" /><Setter Property="BorderBrush" Value="#FF4A83C5" /></DataTrigger>
+                                                                <DataTrigger Binding="{Binding Tag, RelativeSource={RelativeSource Self}}" Value="B"><Setter Property="Background" Value="#FFE2EFFC" /><Setter Property="BorderBrush" Value="#FF4A83C5" /></DataTrigger>
+                                                                <DataTrigger Binding="{Binding Tag, RelativeSource={RelativeSource Self}}" Value="A/B"><Setter Property="Background" Value="#FFE2EFFC" /><Setter Property="BorderBrush" Value="#FF4A83C5" /></DataTrigger>
+                                                            </Style.Triggers>
+                                                        </Style>
+                                                    </Border.Style>
                                                     <Grid>
                                                         <Grid.ColumnDefinitions>
                                                             <ColumnDefinition Width="*" />
@@ -53,7 +81,10 @@
                                                             <ColumnDefinition Width="Auto" />
                                                         </Grid.ColumnDefinitions>
                                                         <StackPanel Grid.Column="0" VerticalAlignment="Center">
-                                                            <TextBlock Text="{Binding DateLabel}" />
+                                                            <StackPanel Orientation="Horizontal">
+                                                                <TextBlock Text="{Binding DateLabel}" />
+                                                                <TextBlock Text="{Binding Tag, RelativeSource={RelativeSource AncestorType={x:Type Border}}}" FontWeight="Bold" Foreground="#FF245B9A" Margin="6,0,0,0" />
+                                                            </StackPanel>
                                                             <TextBlock Text="{Binding SizeLabel}" ToolTip="{Binding SizeTooltip}" FontSize="11" Foreground="#FF606060" />
                                                         </StackPanel>
                                                         <Button Grid.Column="1" Content="A" ToolTip="Choose as snapshot A" Padding="6,2" Margin="3,0" Command="{Binding DataContext.SelectACommand, RelativeSource={RelativeSource AncestorType={x:Type Window}}}" CommandParameter="{Binding}" />
@@ -72,7 +103,18 @@
             </ScrollViewer>
         </Border>
 
-        <TabControl x:Name="MainTabs" Grid.Row="0" Grid.Column="1" Margin="0,0,0,10">
+        <Grid Grid.Row="0" Grid.Column="1" Margin="0,0,0,10">
+            <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="*" /></Grid.RowDefinitions>
+            <Border Grid.Row="0" Padding="8" Margin="0,0,0,8" Background="#FFF3F3F3" BorderBrush="#FFD0D0D0" BorderThickness="1" CornerRadius="3">
+                <DockPanel>
+                    <Button DockPanel.Dock="Right" Content="Clear" Command="{Binding ClearSelectionCommand}" Padding="10,4" Margin="8,0,0,0" />
+                    <StackPanel>
+                        <TextBlock Text="{Binding SelectionA, StringFormat=Older - {0}}" TextTrimming="CharacterEllipsis" ToolTip="{Binding SelectionA}" />
+                        <TextBlock Text="{Binding SelectionB, StringFormat=Newer - {0}}" TextTrimming="CharacterEllipsis" ToolTip="{Binding SelectionB}" />
+                    </StackPanel>
+                </DockPanel>
+            </Border>
+        <TabControl x:Name="MainTabs" Grid.Row="1">
             <TabItem Header="Compare">
                 <Grid Margin="8">
                     <Grid.RowDefinitions>
@@ -233,6 +275,7 @@
                 </Grid>
             </TabItem>
         </TabControl>
+        </Grid>
 
         <Border Grid.Row="1" Grid.ColumnSpan="2" Padding="8" Background="#FFF3F3F3" BorderBrush="#FFD0D0D0" BorderThickness="1" CornerRadius="3">
             <TextBlock Text="{Binding StatusMessage}" TextWrapping="Wrap" />

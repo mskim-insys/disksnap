@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Globalization;
 using System.IO;
 using System.Windows;
+using System.Windows.Data;
 using System.Windows.Input;
 using DiskSnap.Core.Comparison;
 using DiskSnap.Core.Snapshots;
@@ -25,6 +26,14 @@ public sealed partial class MainWindowViewModel
     private void InitializeComparisonCommands()
     {
         CompareCommand = new AsyncRelayCommand(CompareSelectedAsync, () => CanCompare);
+        ClearSelectionCommand = new RelayCommand(_ => ClearComparisonSelection());
+        CompareLatestTwoCommand = new RelayCommand(parameter =>
+        {
+            if (parameter is DriveItemViewModel drive)
+            {
+                EnsureDefaultSelection(drive, force: true);
+            }
+        });
         ToggleComparisonRowCommand = new RelayCommand(parameter =>
         {
             if (parameter is ComparisonTreeRow row)
@@ -43,6 +52,8 @@ public sealed partial class MainWindowViewModel
     }
 
     public ICommand CompareCommand { get; private set; } = null!;
+    public ICommand ClearSelectionCommand { get; private set; } = null!;
+    public ICommand CompareLatestTwoCommand { get; private set; } = null!;
     public ICommand ToggleComparisonRowCommand { get; private set; } = null!;
     public ICommand JumpToBiggestGrowerCommand { get; private set; } = null!;
     public ICommand OpenComparisonInExplorerCommand { get; private set; } = null!;
@@ -95,18 +106,12 @@ public sealed partial class MainWindowViewModel
 
     private void SelectComparisonSnapshot(SnapshotInfo snapshot, bool selectAsOlder)
     {
-        var older = selectAsOlder ? snapshot : SelectedSnapshotA;
-        var newer = selectAsOlder ? SelectedSnapshotB : snapshot;
+        var (older, newer, switchedDrive) = SnapshotSelection.Pick(
+            snapshot, SelectedSnapshotA, SelectedSnapshotB, selectAsOlder);
         var swapped = false;
 
         if (older is not null && newer is not null)
         {
-            if (!SameDrive(older, newer))
-            {
-                StatusMessage = "Snapshots must be from the same drive.";
-                return;
-            }
-
             if (!string.Equals(older.Header.VolumeSerial, newer.Header.VolumeSerial, StringComparison.OrdinalIgnoreCase))
             {
                 StatusMessage = "Snapshots have different volume serials and cannot be compared.";
@@ -135,12 +140,28 @@ public sealed partial class MainWindowViewModel
         {
             CancelComparison();
             SetComparison(null);
+            if (switchedDrive)
+            {
+                StatusMessage = $"Switched to {SnapshotStore.NormalizeDrive(snapshot.Header.Drive)}. Choose the other snapshot, or use 'Compare latest two'.";
+            }
         }
     }
 
-    private void EnsureDefaultSelection(DriveItemViewModel drive)
+    private void ClearComparisonSelection()
     {
-        if (SelectedSnapshotA is not null && SelectedSnapshotB is not null)
+        SelectedSnapshotA = null;
+        SelectedSnapshotB = null;
+        SelectionA = FormatSelection("A", null);
+        SelectionB = FormatSelection("B", null);
+        CancelComparison();
+        SetComparison(null);
+        NotifyComparisonCommandState();
+        StatusMessage = "Selection cleared.";
+    }
+
+    private void EnsureDefaultSelection(DriveItemViewModel drive, bool force = false)
+    {
+        if (!force && SelectedSnapshotA is not null && SelectedSnapshotB is not null)
         {
             return;
         }
@@ -224,6 +245,7 @@ public sealed partial class MainWindowViewModel
         var previousCancellation = _comparisonCancellation;
         _comparisonCancellation = cancellation;
         previousCancellation?.Cancel();
+        SetComparison(null);
         IsComparing = true;
         StatusMessage = selectionNote is null ? "Comparing snapshots..." : selectionNote + " Comparing snapshots...";
 
@@ -403,5 +425,13 @@ public sealed partial class MainWindowViewModel
     private static string FormatSelection(string label, SnapshotInfo? snapshot) => snapshot is null
         ? $"{label}: not selected"
         : $"{label}: {SnapshotStore.NormalizeDrive(snapshot.Header.Drive)} - {snapshot.Utc.ToLocalTime().ToString("g", CultureInfo.CurrentCulture)}";
+}
 
+public sealed class SnapshotSelectionBadgeConverter : IMultiValueConverter
+{
+    public object Convert(object[] values, Type targetType, object parameter, CultureInfo culture) =>
+        SnapshotSelection.GetBadge(values[0] as string, values[1] as string, values[2] as string);
+
+    public object[] ConvertBack(object value, Type[] targetTypes, object parameter, CultureInfo culture) =>
+        throw new NotSupportedException();
 }
