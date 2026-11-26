@@ -103,8 +103,8 @@ Guidance text below is a draft for display only. Verify each command against cur
 - [x] AC9 Retention and write path: with `maxSnapshots` = N, after N+1 scans exactly N files remain and the oldest is gone; a cancelled or failed scan leaves no partial file and deletes nothing.
 - [x] AC10 Diff fixtures cover: new, removed, unknown-presence, rolled-up ancestor delta, and the 80% culprit attribution rule.
 - [x] AC11 `DiskSnap.exe --scan` creates snapshots for the listed drives with no window and returns correct exit codes.
-- [ ] AC12 GUI: multi-drive select and scan with progress and Cancel; snapshot list with delete; Compare tree, Top growers, and Special folders panel work as in R19.
-- [ ] AC13 Real-machine check (user-assisted): scan C:, create a new folder with a dummy 2 GB file, scan again; Top growers lists that folder or file first.
+- [x] AC12 GUI: multi-drive select and scan with progress and Cancel; snapshot list with delete; Compare tree, Top growers, and Special folders panel work as in R19.
+- [x] AC13 Real-machine check (user-assisted): scan C:, create a new folder with a dummy 2 GB file, scan again; Top growers lists that folder or file first.
 - [ ] AC14 Published single-file win-x64 build runs; README.md describes current usage.
 - [ ] AC15 Golden-file test: the AC10 diff fixtures produce a report with the sections in R21 order, rows sorted by delta, the row limit honored, truncation noted, and byte-identical output on a second run.
 - [ ] AC16 `--compare` writes the report, returns 0 on success and non-zero when fewer than two snapshots exist or the volume serials differ; GUI export saves/copies the same text.
