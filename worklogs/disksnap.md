@@ -6,9 +6,7 @@ Status: in progress
 - Current milestone: M5; M0-M4 are complete. M5 awaits the user's [AC14](../specs/disksnap.md#acceptance-criteria) verification; do not start M6 before that.
 - Done: configured self-contained, single-file win-x64 publishing and refreshed the usage guide. The app builds, but the publish command and published executable were not run by the agent.
 - Publish: `dotnet publish src/DiskSnap.App -c Release -r win-x64 -o artifacts/publish` produces `artifacts/publish/DiskSnap.exe`. Published size and output contents are unmeasured; record the actual size after the user publishes. No trimming, ReadyToRun or signing is configured. Existing `.gitignore` rules already ignore `artifacts/`, `publish/`, `bin/` and `obj/`.
-- Single-file source audit: no `Assembly.Location`, `AppContext.BaseDirectory`, or executable-adjacent data files found. Default rules are compiled into `ScanRules`; `SnapshotStore` creates the editable rules and settings under `%LOCALAPPDATA%\DiskSnap` and stores snapshots there. WPF native libraries are configured for self-extraction, not loose deployment beside the exe.
-- Startup audit: `--scan` still dispatches from the WinExe and attaches to the parent console as before. GUI elevation still restarts `Environment.ProcessPath` with `--gui`, which dispatches directly to the GUI; these published-exe paths remain untested at runtime.
-- User verification: run the publish command, copy only the exe to an empty folder (or another machine/user), launch it, scan X:, compare snapshots, then in cmd run `start /wait DiskSnap.exe --scan X:` followed by `echo %ERRORLEVEL%`. Check GUI elevation and output/exit behavior. Windows Smart App Control or SmartScreen may block the unsigned exe; the user will test with Smart App Control off.
+- User verification: run the publish command, copy only the exe to an empty folder (or another machine/user), launch it, scan X:, compare snapshots, then in cmd run `start /wait DiskSnap.exe --scan X:` followed by `echo %ERRORLEVEL%`. Check GUI elevation and output/exit behavior.
 - Read first: `README.md`, `specs/disksnap.md`, `DECISIONS.md`, this Handover.
 - Traps:
   - Do not scan a real drive or access `%LOCALAPPDATA%\DiskSnap` in tests.
@@ -16,12 +14,20 @@ Status: in progress
   - Cloud directory contents may be omitted (2026-11-24-06); file change lower bounds assume folding and are not guaranteed when exclusions or skips apply (2026-11-24-07).
   - Compare selections must share a drive and volume serial; picking another drive replaces the selection.
   - WPF: bindings to get-only properties on Run.Text/TextBox.Text need Mode=OneWay (a missed one broke Special folders once; unit tests cannot catch it).
+  - Smart App Control, SmartScreen or WDAC may block freshly built or published unsigned binaries; the user will test with Smart App Control off.
+  - WinExe: from cmd use `start /wait DiskSnap.exe --scan ...` to get the exit code; the GUI relaunches itself elevated with an internal `--gui`.
 - M6 notes: reuse the GUI wording ("newly observed", "no longer observed", "at least", the folding assumption) so an LLM reading the report does not treat unproven numbers as exact. Reports contain paths only, never file contents; the GUI warns before copying; output is deterministic and capped (default about 20 KB) with an omission note.
 - Open questions: none.
 
 ## Sessions (newest first)
+### 2026-11-26 · M5 follow-up
+- Changed: Embedded debug symbols in App and Core, removed publish symbol-copy settings, and restored usage and handover details.
+- Verified: Visual Studio workspace build and `dotnet build DiskSnap.sln -c Release --no-restore` succeeded. No publish, executable, tests, or real-drive scans were run; [AC14](../specs/disksnap.md#acceptance-criteria) remains for the user to verify.
+
 ### 2026-11-26 · M5
 - Changed: Added win-x64 publish settings and product/version metadata, audited startup and data paths, and rewrote standalone usage. No decision entry was needed.
+- Single-file source audit: no `Assembly.Location`, `AppContext.BaseDirectory`, or executable-adjacent data files found. Default rules are compiled into `ScanRules`; `SnapshotStore` creates the editable rules and settings under `%LOCALAPPDATA%\DiskSnap` and stores snapshots there. WPF native libraries are configured for self-extraction, not loose deployment beside the exe.
+- Startup audit: `--scan` still dispatches from the WinExe and attaches to the parent console as before. GUI elevation still restarts `Environment.ProcessPath` with `--gui`, which dispatches directly to the GUI; these published-exe paths remain untested at runtime.
 - Verified: Visual Studio app build and `dotnet build src\DiskSnap.App\DiskSnap.App.csproj -c Release --no-restore` succeeded; evaluated win-x64 publish properties and confirmed ignore rules. An initial Visual Studio build failed on missing generated WPF files with unconditional single-file properties; conditioning those properties on win-x64 restored the normal development build. No publish, executable, tests, or real-drive scans were run.
 - Risks / open: [AC14](../specs/disksnap.md#acceptance-criteria) awaits the user's publish and runtime checks; output size and exact contents are not yet measured.
 

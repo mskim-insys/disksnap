@@ -10,14 +10,13 @@
     <StartupObject>DiskSnap.App.Program</StartupObject>
     <Version>1.0.0</Version>
     <Product>DiskSnap</Product>
+    <DebugType>embedded</DebugType>
   </PropertyGroup>
 
   <PropertyGroup Condition="'$(RuntimeIdentifier)' == 'win-x64'">
     <PublishSingleFile>true</PublishSingleFile>
     <SelfContained>true</SelfContained>
     <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
-    <CopyOutputSymbolsToPublishDirectory>false</CopyOutputSymbolsToPublishDirectory>
-    <PublishReferencesSymbols>false</PublishReferencesSymbols>
   </PropertyGroup>
 
   <ItemGroup>
