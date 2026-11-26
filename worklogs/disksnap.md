@@ -11,6 +11,7 @@ Status: in progress
 - Traps: Do not scan a real drive or access `%LOCALAPPDATA%\DiskSnap` in tests. A folder below `dirThreshold` is recorded by name only, so its files never appear. Cloud directory contents may be omitted (2026-11-24-06); file change lower bounds assume folding and are not guaranteed when exclusions or skips apply (2026-11-24-07). Compare selections must share a drive and volume serial.
 - How to try, in order: (1) Open Top growers, toggle Shrinkers and Include root, then double-click a row and confirm it jumps in the tree. (2) Open Special folders on X:; expect System Volume Information or similar plus unaccounted space. (3) Change maxSnapshots and thresholds in Settings, restart, and confirm they persisted. (4) For the AC13-style check on X:, create a >=300 MiB file in a new folder, scan, scan again, and confirm Top growers lists it first; choose thresholds that record the folder and file, and compare the scan before creation with the scan after creation. Run the Core tests as appropriate.
 - Open questions: User test and GUI verification are pending.
+- M4-C regression: fixed read-only Special folders bindings and included exception types in comparison failures; user verification remains pending.
 
 ## Sessions (newest first)
 ### 2026-11-24 · M4-C

@@ -255,7 +255,7 @@ public sealed partial class MainWindowViewModel
             if (generation == _comparisonGeneration)
             {
                 SetComparison(null);
-                StatusMessage = $"Comparison failed: {exception.Message}";
+                StatusMessage = $"Comparison failed: {exception.GetType().Name}: {exception.Message}";
             }
         }
         finally

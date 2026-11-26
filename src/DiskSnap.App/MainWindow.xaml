@@ -217,7 +217,7 @@
             <TabItem Header="Special folders">
                 <Grid Margin="8">
                     <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="*" /><RowDefinition Height="Auto" /><RowDefinition Height="*" /></Grid.RowDefinitions>
-                    <TextBlock Grid.Row="0" Margin="0,0,0,8"><Run Text="Unaccounted space: " /><Run Text="{Binding SpecialFolders.UnaccountedDisplay, TargetNullValue=-}" /><Run Text="   Skipped: " /><Run Text="{Binding SpecialFolders.SkippedCount, TargetNullValue=-}" /><TextBlock.ToolTip><TextBlock Text="{Binding SpecialFolders.UnaccountedTooltip}" /></TextBlock.ToolTip></TextBlock>
+                    <TextBlock Grid.Row="0" Margin="0,0,0,8"><Run Text="Unaccounted space: " /><Run Text="{Binding SpecialFolders.UnaccountedDisplay, TargetNullValue=-, Mode=OneWay}" /><Run Text="   Skipped: " /><Run Text="{Binding SpecialFolders.SkippedCount, TargetNullValue=-, Mode=OneWay}" /><TextBlock.ToolTip><TextBlock Text="{Binding SpecialFolders.UnaccountedTooltip}" /></TextBlock.ToolTip></TextBlock>
                     <ListView x:Name="SpecialFoldersList" Grid.Row="1" ItemsSource="{Binding SpecialFolders.Rows}" VirtualizingPanel.IsVirtualizing="True" VirtualizingPanel.VirtualizationMode="Recycling">
                         <ListView.View><GridView>
                             <GridViewColumn Header="Path" Width="240" DisplayMemberBinding="{Binding Path}" />
@@ -229,7 +229,7 @@
                         </GridView></ListView.View>
                     </ListView>
                     <TextBlock Grid.Row="2" Text="Guidance (display only)" FontWeight="SemiBold" Margin="0,10,0,4" />
-                    <TextBox Grid.Row="3" Text="{Binding SelectedItem.Guidance, ElementName=SpecialFoldersList}" IsReadOnly="True" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto" />
+                    <TextBox Grid.Row="3" Text="{Binding SelectedItem.Guidance, ElementName=SpecialFoldersList, Mode=OneWay}" IsReadOnly="True" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto" />
                 </Grid>
             </TabItem>
         </TabControl>
