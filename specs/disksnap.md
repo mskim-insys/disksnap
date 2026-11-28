@@ -1,6 +1,6 @@
 # Spec: DiskSnap
 Status: active
-Last updated: 2026-11-26
+Last updated: 2026-11-28
 
 ## Goal
 A personal Windows tool that records disk-usage snapshots of one or more drives and compares two snapshots, so that when free space suddenly drops the user can see which folder or file grew. Comparison is the main feature. The scan must be cheap enough to run routinely, and snapshots small enough to keep many.
@@ -51,11 +51,13 @@ A personal Windows tool that records disk-usage snapshots of one or more drives 
   - A missing small-files aggregate under an expanded parent has recorded size 0. An aggregate is not an individual new or removed file. Aggregate deltas can include files crossing the threshold and must not be interpreted as exact changes to the same set of files.
   - An excluded node with no recorded file count has unknown measured size; its stored zero may represent an unmeasured exclusion. An exclusion may hide descendants. Do not infer a size for an excluded node solely from current rules, which may have changed since scanning.
 - R18 Top growers: a flat list ranked by delta. A node is listed when its delta is at least `minDelta` (default 50 MiB) and no single child with a qualifying delta accounts for 80% or more of its delta (otherwise the child is listed instead of the parent). A newly observed file with unknown delta may instead be a candidate when its recorded size is at least `minDelta` and at least 80% of its parent's positive delta; its delta remains unknown and its conditional lower bound is shown with the folding assumption when available. Rank observed-file candidates by recorded size. Omit the root by default, with an option to include it; it remains in the tree. A toggle shows shrinkers instead. Each row shows path, older size, newer size, delta, percent change, and any matching rule guidance.
-- R21 Report export: produce a Markdown report from a comparison, meant to be pasted to an LLM or read as text.
-  - Contents, in this order: (1) header: drive, volume serial, both snapshot timestamps, thresholds, volume used/free for each, "unaccounted" for each; (2) summary: total delta, count of new, removed and unknown-presence nodes; (3) top growers table, default 30 rows (configurable): rank, path, older, newer, delta, delta %, flags; (4) for each of the top 10 growers: its ancestor chain with deltas and any matching rule guidance; (5) caveats: skipped-folder counts, excluded rules that were not measured, snapshot-scope notes.
-  - Sizes are shown as human-readable text with exact bytes alongside. Paths are drive-relative with backslashes.
-  - Output is deterministic (stable ordering, no timestamps of the export itself) and capped at a configurable length (default about 20 KB); when the cap truncates, the report says what was omitted.
-  - Reports contain paths only, never file contents. Paths may include user names, so the UI warns before copying.
+- R21 Report export: `DiskSnap.Core.Reporting` produces a Markdown report from a `SnapshotComparison`; the output is a string. Core-only options set the top-grower row limit (default 30) and output cap (default 20,480 UTF-8 bytes); these are not user settings or CLI flags.
+  - Contents, in this order: (1) header: drive, volume serial, both snapshot timestamps in UTC, thresholds, volume used/free for each, and "unaccounted" for each; (2) summary: total delta and counts of `NodePresence.New`, `Removed`, and `Unknown` nodes (never count `Aggregate`); (3) top growers table: rank, path, older, newer, delta, delta %, flags; (4) for each of the top 10 growers: its ancestor chain with deltas and any matching rule guidance; (5) caveats: skipped-folder counts, excluded rules that were not measured, and snapshot-scope notes.
+  - Use `SnapshotComparison.TopGrowers()` defaults. Flags are `new`, `newly observed`, `small files`, rule id, `cloud`, and `hardlink`. Use the GUI wording "newly observed" and "at least"; every conditional lower bound states the ordinary-file folding assumption.
+  - Sizes are shown as human-readable text with exact bytes alongside. Unknown sizes and deltas are "unknown", never zero. Paths are drive-relative with backslashes and escaped so unusual characters cannot break Markdown.
+  - Output is deterministic across machines: invariant culture, LF newlines, UTC header timestamps, no local time or host name, and ordinal-based ordering. No export timestamp is added.
+  - The output, including truncation notes, never exceeds the UTF-8 byte cap. On overflow, retain the header, summary, and caveats; omit whole ancestor sections first, then whole table rows from the bottom. State omission counts. If caveat lists alone exceed the cap, shorten them with an omission count.
+  - Reports contain paths only, never file contents or skipped sample paths; caveats report skipped counts. Paths may include user names, so the UI warns before copying.
 - R22 Delivery: the GUI has an "Export report" action (save as .md, or copy to clipboard). Headless: `DiskSnap.exe --compare C: [--a <file> --b <file>] --out report.md`. With no `--a`/`--b`, it compares the newest snapshot with the previous one.
 
 ### Interfaces
@@ -105,7 +107,7 @@ Guidance text below is a draft for display only. Verify each command against cur
 - [x] AC11 `DiskSnap.exe --scan` creates snapshots for the listed drives with no window and returns correct exit codes.
 - [x] AC12 GUI: multi-drive select and scan with progress and Cancel; snapshot list with delete; Compare tree, Top growers, and Special folders panel work as in R19.
 - [x] AC13 Real-machine check (user-assisted): scan C:, create a new folder with a dummy 2 GB file, scan again; Top growers lists that folder or file first.
-- [ ] AC14 Published single-file win-x64 build runs; README.md describes current usage.
+- [x] AC14 Published single-file win-x64 build runs; README.md describes current usage.
 - [ ] AC15 Golden-file test: the AC10 diff fixtures produce a report with the sections in R21 order, rows sorted by delta, the row limit honored, truncation noted, and byte-identical output on a second run.
 - [ ] AC16 `--compare` writes the report, returns 0 on success and non-zero when fewer than two snapshots exist or the volume serials differ; GUI export saves/copies the same text.
 

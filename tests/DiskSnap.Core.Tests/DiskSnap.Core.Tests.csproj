@@ -21,4 +21,8 @@
     <ProjectReference Include="..\..\src\DiskSnap.Core\DiskSnap.Core.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <None Update="ComparisonReport.golden.md" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
 </Project>
