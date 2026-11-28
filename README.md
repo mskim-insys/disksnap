@@ -20,8 +20,11 @@ echo %ERRORLEVEL%
 
 For scheduled scans, create a Windows Task Scheduler task pointing to `DiskSnap.exe`, pass `--scan C: D:` as arguments, and select **Run with highest privileges**.
 
+### Headless comparison reports
+Run `DiskSnap.exe --compare C: --out report.md` to compare the newest two valid C: snapshots, or supply both `--a <file> --b <file>` to choose snapshots explicitly. The explicit pair must belong to C: and the same volume serial; the header UTC timestamps determine older/newer order. The output path is required and an existing report may be overwritten after the complete report is ready. Comparison never requests elevation, uses the current rules and default report limits, and exits 0 only on success; failures are reported to stderr and leave an existing destination unchanged.
+
 ## Build and publish
 See the build commands in AGENTS.md. To publish for Windows x64, run `dotnet publish src/DiskSnap.App -c Release -r win-x64 -o artifacts/publish`; the executable is `artifacts/publish/DiskSnap.exe`.
 
 ## Current behavior and limits
-Sizes are allocated bytes. A folder below the directory threshold is recorded by name and total, not its children; small files inside expanded folders are aggregated. A file missing from one snapshot may have been folded, excluded or skipped, so it can be described as **newly observed** rather than definitely new; any folding-based lower bound is conditional. Cloud placeholder directories are not enumerated, even within measured exclusions, so their local contents may be omitted. Report export and headless `--compare` are not available.
+Sizes are allocated bytes. A folder below the directory threshold is recorded by name and total, not its children; small files inside expanded folders are aggregated. A file missing from one snapshot may have been folded, excluded or skipped, so it can be described as **newly observed** rather than definitely new; any folding-based lower bound is conditional. Cloud placeholder directories are not enumerated, even within measured exclusions, so their local contents may be omitted. Headless `--compare` is available; GUI report export is not implemented.

@@ -3,26 +3,32 @@ Spec: specs/disksnap.md
 Status: in progress
 
 ## Handover
-- Current milestone: M6-A (Core report generator); M0-M5 are complete. M6-B delivery remains for a later scope. [AC15](../specs/disksnap.md#acceptance-criteria) is intentionally unchecked; [AC16](../specs/disksnap.md#acceptance-criteria) is not implemented here.
-- Done: implemented the UI-free Core Markdown report generator, Core-only row and UTF-8 byte options, golden fixture and focused report tests, R21 updates, and the report contract decision. The app icon was added by the user via another agent; left unchanged.
-- Verified: `dotnet build DiskSnap.sln -c Release` succeeded with 0 warnings/errors. Elevated `dotnet test DiskSnap.sln` passed: 115 passed, 2 skipped, 0 failed. AC15 remains unchecked.
+- Current milestone: M6-B (headless `--compare`); M0-M5 are complete. [AC15](../specs/disksnap.md#acceptance-criteria) is checked; [AC16](../specs/disksnap.md#acceptance-criteria) remains unchecked because GUI export is out of this scope.
+- Done: implemented the UI-free Core Markdown report generator and headless compare runner, documented the CLI contract, and added temp-store tests. No GUI surfaces were changed.
+- Verified: `dotnet build DiskSnap.sln -c Release` succeeded with 0 warnings/errors. `dotnet test DiskSnap.sln` passed: 120 passed, 2 skipped, 0 failed.
+- User-reported Verified (2026-11-28): the user ran the AC15 golden-file tests and found no problem; AC15 remains checked.
 - User-reported AC14 verification (2026-11-28): the user ran the published exe, accepted the admin prompt, and reported normal use working. No other AC14 checks are claimed.
 - Publish: `dotnet publish src/DiskSnap.App -c Release -r win-x64 -o artifacts/publish` produces `artifacts/publish/DiskSnap.exe`. The published size is unmeasured; no trimming, ReadyToRun, or signing is configured. Existing `.gitignore` rules already ignore `artifacts/`, `publish/`, `bin/`, and `obj/`.
-- First step next session: implement the requested GUI/headless delivery separately under R22 and AC16.
+- First step next session: implement GUI report export only if scoped, then verify the remaining parts of AC16.
 - Read first: `README.md`, `specs/disksnap.md`, `DECISIONS.md`, this Handover.
 - Traps:
   - Do not scan a real drive or access `%LOCALAPPDATA%\DiskSnap` in tests.
   - A folder below `dirThreshold` is recorded by name only, so its files never appear.
   - Cloud directory contents may be omitted (2026-11-24-06); file change lower bounds assume folding and are not guaranteed when exclusions or skips apply (2026-11-24-07).
-  - Compare selections must share a drive and volume serial; picking another drive replaces the selection.
+  - Compare selections must share a drive and volume serial; CLI auto-selection does not search older than the newest two valid snapshots when serials differ.
   - WPF: bindings to get-only properties on Run.Text/TextBox.Text need Mode=OneWay (a missed one broke Special folders once; unit tests cannot catch it).
   - Smart App Control, SmartScreen or WDAC may block freshly built or published unsigned binaries; no runtime behavior beyond the user's stated normal-use report is claimed here.
   - WinExe: from cmd use `start /wait DiskSnap.exe --scan ...` to get the exit code; the GUI relaunches itself elevated with an internal `--gui`.
 - M6 notes: report is deterministic, uses invariant formatting and LF, emits UTC header timestamps, keeps paths only, omits skipped sample paths, and caps output at 20,480 UTF-8 bytes by default. Keep the existing GUI wording for observation and conditional folding bounds.
-- Not run: publish command, CLI/GUI export flows, and real-drive scans.
+- Not run: publish command, published-executable `--compare`, GUI export/runtime, and real-drive scans.
 - Open questions: none.
 
 ## Sessions (newest first)
+### 2026-11-28 · M6-B
+- Changed: Added the Core compare runner and `--compare` argument parsing/dispatch, atomic BOM-less UTF-8 report delivery, explicit/newest-two snapshot selection, and temp-store tests. Updated R22, README usage, and decision 2026-11-28-02. Left GUI code and the existing `--scan` behavior unchanged; AC16 remains unchecked.
+- Verified: `dotnet build DiskSnap.sln -c Release` succeeded with 0 warnings and 0 errors; `dotnet test DiskSnap.sln` passed (120 passed, 2 skipped, 0 failed). User-reported Verified (2026-11-28): the user ran the AC15 golden-file tests and found no problem; AC15 remains checked.
+- Not run: publish command, published-executable `--compare`, GUI export/runtime, or real-drive scan.
+
 ### 2026-11-28 · M6-A follow-up
 - Changed: Preserved path punctuation and backslashes in adaptive inline code spans, preserved guidance commands while flattening newlines, corrected omitted-rule caveats and zero-baseline percentages, extended the fixture and golden report, and refined R21 and decision 2026-11-28-01. The user had another agent add the app icon; it was not changed in this session. AC15 remains unchecked.
 - Verified: elevated `dotnet test DiskSnap.sln` passed (115 passed, 2 skipped, 0 failed); `dotnet build DiskSnap.sln -c Release` succeeded (0 warnings, 0 errors). AC15 remains unchecked.

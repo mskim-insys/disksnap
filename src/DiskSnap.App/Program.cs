@@ -2,6 +2,7 @@ using System.ComponentModel;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Security.Principal;
+using DiskSnap.Core.Reporting;
 using DiskSnap.Core.Scanning;
 using DiskSnap.Core.Storage;
 
@@ -60,9 +61,22 @@ internal static class Program
         Console.CancelKeyPress += cancelHandler;
         try
         {
+            if (string.Equals(args[0], "--compare", StringComparison.OrdinalIgnoreCase))
+            {
+                if (!TryParseCompareArguments(args, out var drive, out var aPath, out var bPath, out var outputPath, out var parseError))
+                {
+                    Console.Error.WriteLine(parseError);
+                    return 1;
+                }
+
+                return new ComparisonReportRunner(new SnapshotStore())
+                    .RunAsync(drive, aPath, bPath, outputPath, Console.Out, Console.Error, cancellation.Token)
+                    .GetAwaiter().GetResult();
+            }
+
             if (!string.Equals(args[0], "--scan", StringComparison.OrdinalIgnoreCase))
             {
-                Console.Error.WriteLine("Usage: DiskSnap.exe --scan C: D: [--quiet]");
+                Console.Error.WriteLine("Usage: DiskSnap.exe --scan C: D: [--quiet] | --compare C: [--a <file> --b <file>] --out <file>");
                 return 1;
             }
 
@@ -101,6 +115,85 @@ internal static class Program
         {
             Console.CancelKeyPress -= cancelHandler;
         }
+    }
+
+    private static bool TryParseCompareArguments(
+        IReadOnlyList<string> args,
+        out string drive,
+        out string? aPath,
+        out string? bPath,
+        out string? outputPath,
+        out string error)
+    {
+        drive = args.Count > 1 ? args[1] : string.Empty;
+        aPath = null;
+        bPath = null;
+        outputPath = null;
+        error = string.Empty;
+        if (string.IsNullOrWhiteSpace(drive))
+        {
+            error = "Usage: DiskSnap.exe --compare C: [--a <file> --b <file>] --out <file>";
+            return false;
+        }
+
+        for (var index = 2; index < args.Count; index++)
+        {
+            var option = args[index];
+            if (!string.Equals(option, "--a", StringComparison.OrdinalIgnoreCase) &&
+                !string.Equals(option, "--b", StringComparison.OrdinalIgnoreCase) &&
+                !string.Equals(option, "--out", StringComparison.OrdinalIgnoreCase))
+            {
+                error = $"Unknown or repeated option: {option}";
+                return false;
+            }
+
+            if (index + 1 >= args.Count || string.IsNullOrWhiteSpace(args[index + 1]))
+            {
+                error = $"An output value is required after {option}.";
+                return false;
+            }
+
+            var value = args[++index];
+            if (string.Equals(option, "--a", StringComparison.OrdinalIgnoreCase))
+            {
+                if (aPath is not null)
+                {
+                    error = "Unknown or repeated option: --a";
+                    return false;
+                }
+                aPath = value;
+            }
+            else if (string.Equals(option, "--b", StringComparison.OrdinalIgnoreCase))
+            {
+                if (bPath is not null)
+                {
+                    error = "Unknown or repeated option: --b";
+                    return false;
+                }
+                bPath = value;
+            }
+            else
+            {
+                if (outputPath is not null)
+                {
+                    error = "Unknown or repeated option: --out";
+                    return false;
+                }
+                outputPath = value;
+            }
+        }
+
+        if (outputPath is null)
+        {
+            error = "--out is required.";
+            return false;
+        }
+        if ((aPath is null) != (bPath is null))
+        {
+            error = "--a and --b must be supplied together.";
+            return false;
+        }
+        return true;
     }
 
     private static int RunGui(string? warning = null)

@@ -58,7 +58,7 @@ A personal Windows tool that records disk-usage snapshots of one or more drives 
   - Output is deterministic across machines: invariant culture, LF newlines, UTC header timestamps, no local time or host name, and ordinal-based ordering. No export timestamp is added.
   - The output, including truncation notes, never exceeds the UTF-8 byte cap. On overflow, retain the header, summary, and caveats; omit whole ancestor sections first, then whole table rows from the bottom. State omission counts. If caveat lists alone exceed the cap, shorten them with an omission count.
   - Reports contain paths only, never file contents or skipped sample paths; caveats report skipped counts. Paths may include user names, so the UI warns before copying.
-- R22 Delivery: the GUI has an "Export report" action (save as .md, or copy to clipboard). Headless: `DiskSnap.exe --compare C: [--a <file> --b <file>] --out report.md`. With no `--a`/`--b`, it compares the newest snapshot with the previous one.
+- R22 Delivery: the GUI has an "Export report" action (save as .md, or copy to clipboard). Headless: `DiskSnap.exe --compare C: [--a <file> --b <file>] --out report.md`. `--out` is required and may name an existing file. `--a` and `--b` must be supplied together; they identify the older and newer snapshots, ordered by header UTC even if the arguments are reversed. Both snapshots must match the requested drive and share a volume serial. Without explicit files, compare the newest two valid snapshots for that drive; if fewer than two exist or their serials differ, fail without searching further back. Headless comparison never requests elevation. It loads current rules through `LoadRulesAsync` and uses `ComparisonReportGenerator` defaults, so the report text follows the same rules as GUI generation. Write the complete report as UTF-8 without a BOM to a temporary file beside the destination, then atomically replace/move it into place; a failed run must leave no partial report and must not alter an existing destination. Exit 0 only after the report is fully written; otherwise write an error to stderr and exit non-zero.
 
 ### Interfaces
 - R19 GUI (WPF), plain and usable:
@@ -67,7 +67,7 @@ A personal Windows tool that records disk-usage snapshots of one or more drives 
   - Main pane tabs: Compare (tree), Top growers (flat), Special folders.
   - Compare tree columns: Name, Older, Newer, Delta, Delta %, a delta bar. Siblings sorted by absolute delta descending. A "growth only" filter. Context menu: open in Explorer, copy path. A "Jump to biggest grower" action expands the path to the largest culprit.
   - The tree must stay responsive with hundreds of thousands of nodes: virtualized, nodes built lazily.
-- R20 Headless: `DiskSnap.exe --scan C: D: [--quiet]` runs without a window, writes snapshots, applies retention, and exits with 0 on success and non-zero if any drive failed. Ctrl+C cancels the scan. Unless quiet, print a final count of saved and failed drives. Intended for Task Scheduler with highest privileges.
+- R20 Headless: `DiskSnap.exe --scan C: D: [--quiet]` runs without a window, writes snapshots, applies retention, and exits with 0 on success and non-zero if any drive failed. Ctrl+C cancels the scan. Unless quiet, print a final count of saved and failed drives. It never requests elevation; intended for Task Scheduler with highest privileges.
 
 ### Default rules
 Guidance text below is a draft for display only. Verify each command against current Microsoft documentation before shipping and never execute anything automatically.
@@ -108,7 +108,7 @@ Guidance text below is a draft for display only. Verify each command against cur
 - [x] AC12 GUI: multi-drive select and scan with progress and Cancel; snapshot list with delete; Compare tree, Top growers, and Special folders panel work as in R19.
 - [x] AC13 Real-machine check (user-assisted): scan C:, create a new folder with a dummy 2 GB file, scan again; Top growers lists that folder or file first.
 - [x] AC14 Published single-file win-x64 build runs; README.md describes current usage.
-- [ ] AC15 Golden-file test: the AC10 diff fixtures produce a report with the sections in R21 order, rows sorted by delta, the row limit honored, truncation noted, and byte-identical output on a second run.
+- [x] AC15 Golden-file test: the AC10 diff fixtures produce a report with the sections in R21 order, rows sorted by delta, the row limit honored, truncation noted, and byte-identical output on a second run.
 - [ ] AC16 `--compare` writes the report, returns 0 on success and non-zero when fewer than two snapshots exist or the volume serials differ; GUI export saves/copies the same text.
 
 ## Milestones
