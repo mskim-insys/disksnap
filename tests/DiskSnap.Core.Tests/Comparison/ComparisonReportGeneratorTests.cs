@@ -26,6 +26,8 @@ public sealed class ComparisonReportGeneratorTests
         Assert.DoesNotContain("host", first, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("secret", first, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("skipped-sample", first, StringComparison.Ordinal);
+        Assert.Contains("`alpha.dir\\-child_name&more`", first, StringComparison.Ordinal);
+        Assert.Contains("Run `tool.exe /open C:\\folder`. Keep it.", first, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -38,8 +40,8 @@ public sealed class ComparisonReportGeneratorTests
         Assert.True(report.IndexOf("## Summary", StringComparison.Ordinal) < report.IndexOf("## Top growers", StringComparison.Ordinal));
         Assert.True(report.IndexOf("## Top growers", StringComparison.Ordinal) < report.IndexOf("### Ancestors:", StringComparison.Ordinal));
         Assert.True(report.IndexOf("### Ancestors:", StringComparison.Ordinal) < report.IndexOf("## Caveats", StringComparison.Ordinal));
-        Assert.Contains("4 top-grower rows omitted by the configured row limit", report, StringComparison.Ordinal);
-        Assert.Contains("| 1 | unknown\\.bin", report, StringComparison.Ordinal);
+        Assert.Contains("6 top-grower rows omitted by the configured row limit", report, StringComparison.Ordinal);
+        Assert.Contains("| 1 | `unknown.bin`", report, StringComparison.Ordinal);
         Assert.DoesNotContain("| 2 |", report, StringComparison.Ordinal);
     }
 
@@ -47,7 +49,7 @@ public sealed class ComparisonReportGeneratorTests
     public void OutputAndTruncationNotesStayWithinUtf8ByteLimitAndKeepRequiredSections()
     {
         var comparison = CreateComparison();
-        const int cap = 1_800;
+        const int cap = 2_600;
 
         var report = ComparisonReportGenerator.Generate(comparison, new ReportOptions { MaxUtf8Bytes = cap });
 
@@ -57,6 +59,28 @@ public sealed class ComparisonReportGeneratorTests
         Assert.Contains("## Caveats", report, StringComparison.Ordinal);
         Assert.Contains("## Truncation", report, StringComparison.Ordinal);
         Assert.Contains("omitted to fit", report, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("ancestor sections", report, StringComparison.Ordinal);
+        Assert.DoesNotContain("top-grower rows", report, StringComparison.Ordinal);
+        Assert.Equal(comparison.TopGrowers().Count, report.Split('\n').Count(line => line.StartsWith("| ", StringComparison.Ordinal) && char.IsDigit(line[2])));
+        Assert.Contains("| n/a | new, cloud, hardlink |", report, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void CompletelyOmittedExcludedRuleIdsAreNotReportedAsNone()
+    {
+        var ruleId = new string('x', 30_000);
+        var snapshot = new Snapshot
+        {
+            Header = Header("2026-11-25T01:02:03+09:00", 1_000, 500, 20),
+            Nodes = [Node("", "d", 500), Node("excluded", "x", 0, ruleId: ruleId)]
+        };
+        var comparison = SnapshotComparer.Compare(snapshot, snapshot);
+
+        var report = ComparisonReportGenerator.Generate(comparison);
+
+        Assert.Contains("Unmeasured excluded rule ids omitted: 1.", report, StringComparison.Ordinal);
+        Assert.DoesNotContain("Unmeasured excluded rule ids: none.", report, StringComparison.Ordinal);
+        Assert.True(Encoding.UTF8.GetByteCount(report) <= new ReportOptions().MaxUtf8Bytes);
     }
 
     [Fact]
@@ -87,6 +111,7 @@ public sealed class ComparisonReportGeneratorTests
         var newHeader = Header("2026-11-26T01:02:03+09:00", 1_200 * m, 350 * m, 10 * m);
         var cacheRule = new ScanRule { Id = "cache", Pattern = "cache", Action = "exclude", Title = "Cache", Guidance = "Not measured." };
         var hintRule = new ScanRule { Id = "hint", Pattern = "alpha", Action = "track", Title = "Alpha", Guidance = "Tracked folder." };
+        var pathRule = new ScanRule { Id = "path-hint", Pattern = "alpha.dir", Action = "track", Title = "Path hint", Guidance = "Run `tool.exe /open C:\\folder`.\nKeep it." };
         var older = new Snapshot
         {
             Header = oldHeader,
@@ -94,6 +119,8 @@ public sealed class ComparisonReportGeneratorTests
             [
                 Node("", "d", 500 * m),
                 Node("alpha", "c", 100 * m),
+                Node("alpha.dir", "d", 100 * m, ruleId: "path-hint"),
+                Node(@"alpha.dir\-child_name&more", "c", 10 * m, ruleId: "path-hint"),
                 Node("b|eta", "c", 100 * m),
                 Node("gone", "c", 10 * m),
                 Node("cache", "x", 0, ruleId: "cache"),
@@ -108,6 +135,8 @@ public sealed class ComparisonReportGeneratorTests
             [
                 Node("", "d", 700 * m),
                 Node("alpha", "c", 170 * m, ruleId: "hint"),
+                Node("alpha.dir", "d", 180 * m, ruleId: "path-hint"),
+                Node(@"alpha.dir\-child_name&more", "c", 70 * m, ruleId: "path-hint"),
                 Node("b|eta", "c", 160 * m),
                 Node("fresh", "c", 60 * m, flags: ["cloud", "hardlink"]),
                 Node("unknown.bin", "f", 170 * m),
@@ -116,7 +145,7 @@ public sealed class ComparisonReportGeneratorTests
                 Node("*", "g", 70 * m)
             ]
         };
-        return SnapshotComparer.Compare(older, newer, [cacheRule, hintRule]);
+        return SnapshotComparer.Compare(older, newer, [cacheRule, hintRule, pathRule]);
     }
 
     private static SnapshotHeader Header(string utc, long total, long free, long fileThreshold) => new()

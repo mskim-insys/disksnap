@@ -4,8 +4,8 @@ Status: in progress
 
 ## Handover
 - Current milestone: M6-A (Core report generator); M0-M5 are complete. M6-B delivery remains for a later scope. [AC15](../specs/disksnap.md#acceptance-criteria) is intentionally unchecked; [AC16](../specs/disksnap.md#acceptance-criteria) is not implemented here.
-- Done: implemented the UI-free Core Markdown report generator, Core-only row and UTF-8 byte options, golden fixture and focused report tests, R21 updates, and the report contract decision.
-- Verified: `dotnet build DiskSnap.sln -c Release` succeeded; all 4 focused report tests passed. This does not mark AC15 checked.
+- Done: implemented the UI-free Core Markdown report generator, Core-only row and UTF-8 byte options, golden fixture and focused report tests, R21 updates, and the report contract decision. The app icon was added by the user via another agent; left unchanged.
+- Verified: `dotnet build DiskSnap.sln -c Release` succeeded with 0 warnings/errors. Elevated `dotnet test DiskSnap.sln` passed: 115 passed, 2 skipped, 0 failed. AC15 remains unchecked.
 - User-reported AC14 verification (2026-11-28): the user ran the published exe, accepted the admin prompt, and reported normal use working. No other AC14 checks are claimed.
 - Publish: `dotnet publish src/DiskSnap.App -c Release -r win-x64 -o artifacts/publish` produces `artifacts/publish/DiskSnap.exe`. The published size is unmeasured; no trimming, ReadyToRun, or signing is configured. Existing `.gitignore` rules already ignore `artifacts/`, `publish/`, `bin/`, and `obj/`.
 - First step next session: implement the requested GUI/headless delivery separately under R22 and AC16.
@@ -19,10 +19,15 @@ Status: in progress
   - Smart App Control, SmartScreen or WDAC may block freshly built or published unsigned binaries; no runtime behavior beyond the user's stated normal-use report is claimed here.
   - WinExe: from cmd use `start /wait DiskSnap.exe --scan ...` to get the exit code; the GUI relaunches itself elevated with an internal `--gui`.
 - M6 notes: report is deterministic, uses invariant formatting and LF, emits UTC header timestamps, keeps paths only, omits skipped sample paths, and caps output at 20,480 UTF-8 bytes by default. Keep the existing GUI wording for observation and conditional folding bounds.
-- Not run: full solution test suite, publish command, CLI/GUI export flows, and real-drive scans.
+- Not run: publish command, CLI/GUI export flows, and real-drive scans.
 - Open questions: none.
 
 ## Sessions (newest first)
+### 2026-11-28 · M6-A follow-up
+- Changed: Preserved path punctuation and backslashes in adaptive inline code spans, preserved guidance commands while flattening newlines, corrected omitted-rule caveats and zero-baseline percentages, extended the fixture and golden report, and refined R21 and decision 2026-11-28-01. The user had another agent add the app icon; it was not changed in this session. AC15 remains unchecked.
+- Verified: elevated `dotnet test DiskSnap.sln` passed (115 passed, 2 skipped, 0 failed); `dotnet build DiskSnap.sln -c Release` succeeded (0 warnings, 0 errors). AC15 remains unchecked.
+- Not run: publish command, CLI/GUI export paths, or real-drive scan.
+
 ### 2026-11-28 · M6-A
 - Changed: Added the Core report generator/options and AC10-style golden fixture/tests, set golden Markdown line endings in `.gitattributes`, updated R21 and recorded 2026-11-28-01. Marked AC14 from the user's report only; AC15 remains unchecked as requested.
 - Verified: `dotnet build DiskSnap.sln -c Release` succeeded; focused report tests passed 4/4. The user ran the published exe, accepted the admin prompt, and reported normal use working (2026-11-28). No other AC14 checks are claimed.

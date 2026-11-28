@@ -34,7 +34,7 @@ public static class ComparisonReportGenerator
                            node.NewerNode?.Kind == "x" && node.NewerNode.FileCount is null)
             .SelectMany(node => new[] { node.OlderNode, node.NewerNode })
             .Where(node => node?.Kind == "x" && node.FileCount is null && node.RuleId is not null)
-            .Select(node => node!.RuleId!)
+            .Select(node => StructuralText(node!.RuleId!))
             .Distinct(StringComparer.Ordinal)
             .OrderBy(id => id, StringComparer.Ordinal)
             .ToArray();
@@ -102,8 +102,8 @@ public static class ComparisonReportGenerator
             "# DiskSnap comparison report",
             "",
             "## Comparison",
-            $"- Drive: {Escape(older.Drive)}",
-            $"- Volume serial: {Escape(older.VolumeSerial)}",
+            $"- Drive: {StructuralText(older.Drive)}",
+            $"- Volume serial: {StructuralText(older.VolumeSerial)}",
             $"- Older snapshot (UTC): {FormatUtc(older.Utc)}",
             $"- Newer snapshot (UTC): {FormatUtc(newer.Utc)}",
             $"- Directory threshold (older / newer): {FormatSize(older.DirectoryThreshold)} / {FormatSize(newer.DirectoryThreshold)}",
@@ -138,7 +138,7 @@ public static class ComparisonReportGenerator
         for (var index = 0; index < rows.Count; index++)
         {
             var node = rows[index];
-            lines.Add($"| {(index + 1).ToString(Invariant)} | {Escape(node.Path)} | {FormatSize(node.OlderSize)} | {FormatSize(node.NewerSize)} | {FormatNodeDelta(node)} | {FormatPercent(node.PercentChange)} | {Escape(string.Join(", ", GetFlags(node)))} |");
+            lines.Add($"| {(index + 1).ToString(Invariant)} | {FormatPath(node.Path, tableCell: true)} | {FormatSize(node.OlderSize)} | {FormatSize(node.NewerSize)} | {FormatNodeDelta(node)} | {FormatPercent(node)} | {FormatTableCell(string.Join(", ", GetFlags(node)))} |");
         }
         if (omittedForLimit > 0)
             lines.Add($"\n_{omittedForLimit.ToString(Invariant)} top-grower rows omitted by the configured row limit._");
@@ -151,15 +151,15 @@ public static class ComparisonReportGenerator
         for (var current = grower; current is not null; current = current.Parent)
             chain.Push(current);
 
-        var lines = new List<string> { $"### Ancestors: {Escape(grower.Path)}" };
+        var lines = new List<string> { $"### Ancestors: {FormatPath(grower.Path)}" };
         while (chain.Count > 0)
         {
             var node = chain.Pop();
-            var path = node.Path.Length == 0 ? "(drive root)" : node.Path;
-            var line = $"- {Escape(path)}: {FormatNodeDelta(node)}";
+            var path = node.Path.Length == 0 ? "(drive root)" : FormatPath(node.Path);
+            var line = $"- {path}: {FormatNodeDelta(node)}";
             var guidance = GetGuidance(node);
             if (guidance.Length > 0)
-                line += $"; guidance: {Escape(guidance)}";
+                line += $"; guidance: {guidance}";
             lines.Add(line);
         }
         return string.Join("\n", lines);
@@ -175,16 +175,20 @@ public static class ComparisonReportGenerator
             $"- Skipped folders: older {olderSkipped}; newer {newerSkipped}. Sample paths are not included."
         };
 
-        if (ruleIds.Count > 0)
+        if (ruleIds.Count == 0)
         {
-            var shown = ruleIds.Take(ruleLimit).Select(Escape).ToArray();
-            var omitted = ruleIds.Count - shown.Length;
-            var suffix = omitted > 0 ? $"; {omitted.ToString(Invariant)} rule ids omitted" : string.Empty;
-            lines.Add($"- Unmeasured excluded rule ids: {(shown.Length > 0 ? string.Join(", ", shown) : "none")}{suffix}.");
+            lines.Add("- Unmeasured excluded rule ids: none.");
+        }
+        else if (ruleLimit == 0)
+        {
+            lines.Add($"- Unmeasured excluded rule ids omitted: {ruleIds.Count.ToString(Invariant)}.");
         }
         else
         {
-            lines.Add("- Unmeasured excluded rule ids: none.");
+            var shown = ruleIds.Take(ruleLimit).Select(StructuralText).ToArray();
+            var omitted = ruleIds.Count - shown.Length;
+            var suffix = omitted > 0 ? $"; {omitted.ToString(Invariant)} rule ids omitted" : string.Empty;
+            lines.Add($"- Unmeasured excluded rule ids: {string.Join(", ", shown)}{suffix}.");
         }
 
         if (shortenScope)
@@ -241,7 +245,7 @@ public static class ComparisonReportGenerator
 
     private static string GetGuidance(ComparisonNode node) => string.Join("; ",
         node.OlderGuidance.Concat(node.NewerGuidance)
-            .Select(rule => $"{rule.Title} ({rule.Id}): {rule.Guidance}")
+            .Select(rule => StructuralText($"{rule.Title} ({rule.Id}): {CollapseNewlines(rule.Guidance)}"))
             .Distinct(StringComparer.Ordinal)
             .OrderBy(text => text, StringComparer.Ordinal));
 
@@ -271,8 +275,14 @@ public static class ComparisonReportGenerator
         return $"{sign}{SizeFormatter.Format(magnitude, Invariant)} ({signedBytes} bytes)";
     }
 
-    private static string FormatPercent(double? percent) =>
-        percent.HasValue ? $"{percent.Value.ToString("+0.##;-0.##;+0", Invariant)}%" : "unknown";
+    private static string FormatPercent(ComparisonNode node)
+    {
+        if (node.OlderSize == 0)
+            return "n/a";
+        return node.PercentChange is double percent
+            ? $"{percent.ToString("+0.##;-0.##;+0", Invariant)}%"
+            : "unknown";
+    }
 
     private static string FormatSize(long? bytes) => bytes.HasValue
         ? $"{SizeFormatter.Format(bytes, Invariant)} ({bytes.Value.ToString("#,0", Invariant)} bytes)"
@@ -284,24 +294,41 @@ public static class ComparisonReportGenerator
         return timestamp.ToString("yyyy-MM-dd HH:mm:ss 'UTC'", Invariant);
     }
 
-    private static string Escape(string value)
+    private static string FormatPath(string path, bool tableCell = false)
     {
-        var result = new StringBuilder(value.Length);
-        foreach (var character in value)
+        var content = tableCell ? EscapeTablePipe(path) : path;
+        var delimiterLength = 1;
+        for (var index = 0; index < path.Length;)
         {
-            if (character == '\r') result.Append("\\r");
-            else if (character == '\n') result.Append("\\n");
-            else if (character == '\t') result.Append("\\t");
-            else if (char.IsControl(character)) result.Append("\\u").Append(((int)character).ToString("X4", Invariant));
-            else if (character == '&') result.Append("&amp;");
-            else if (character == '<') result.Append("&lt;");
-            else if (character == '>') result.Append("&gt;");
-            else if (character is '\\' or '`' or '*' or '_' or '{' or '}' or '[' or ']' or '(' or ')' or '#' or '+' or '-' or '.' or '!' or '|')
-                result.Append('\\').Append(character);
-            else result.Append(character);
+            if (path[index] != '`')
+            {
+                index++;
+                continue;
+            }
+
+            var start = index;
+            while (index < path.Length && path[index] == '`')
+                index++;
+            delimiterLength = Math.Max(delimiterLength, index - start + 1);
         }
-        return result.ToString();
+
+        var delimiter = new string('`', delimiterLength);
+        var needsPadding = content.Length > 0 && (content[0] is ' ' or '`' || content[^1] is ' ' or '`');
+        return needsPadding
+            ? $"{delimiter} {content} {delimiter}"
+            : $"{delimiter}{content}{delimiter}";
     }
+
+    private static string EscapeTablePipe(string value) => value.Replace("|", "\\|", StringComparison.Ordinal);
+
+    private static string FormatTableCell(string value) => EscapeTablePipe(StructuralText(value));
+
+    private static string StructuralText(string value) => CollapseNewlines(value).Replace('\t', ' ');
+
+    private static string CollapseNewlines(string value) => value
+        .Replace("\r\n", " ", StringComparison.Ordinal)
+        .Replace('\r', ' ')
+        .Replace('\n', ' ');
 
     private static int Utf8Length(string value) => Encoding.UTF8.GetByteCount(value);
 }
